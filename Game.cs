@@ -13,6 +13,7 @@
 // asks for administrator rights: the game folder, HKLM and sdbinst (Compatibility Profile) all need them.
 using System;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -381,7 +382,13 @@ static class Game
     }
 
     // ---- Shortcuts (WScript.Shell, through late binding) ----
+    // The trimmer warns about the reflection calls below, but they go through COM's IDispatch, not through .NET
+    // metadata it could remove (BuiltInComInteropSupport is on in the project), so the warnings don't apply.
 
+    const string ComLateBinding = "WScript.Shell is a COM object; late binding goes through IDispatch, which trimming does not affect";
+
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = ComLateBinding)]
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ComLateBinding)]
     static object Shortcut(string path)
     {
         Type t = Type.GetTypeFromProgID("WScript.Shell")!;
@@ -389,15 +396,18 @@ static class Game
         return t.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path })!;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ComLateBinding)]
     static void Set(object o, string name, object value) =>
         o.GetType().InvokeMember(name, BindingFlags.SetProperty, null, o, new[] { value });
 
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ComLateBinding)]
     static void Save(object o, string path)
     {
         o.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, o, null);
         Log("Shortcut saved: " + path);
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ComLateBinding)]
     static string ShortcutArguments(string path)
     {
         if (!File.Exists(path)) return "";
@@ -476,6 +486,7 @@ static class Game
     // The app runs as administrator, and whatever it starts directly would too. Explorer runs as the user,
     // so the game is started through a shortcut that Explorer opens, and folders, the guide and links through Explorer.
 
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ComLateBinding)]
     public static void Play(bool skipIntro, string server)
     {
         string args = skipIntro || server != "" ? "+restart 1" : "";
