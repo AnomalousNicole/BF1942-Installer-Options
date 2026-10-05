@@ -17,7 +17,8 @@ public sealed partial class MainWindow : Window
     const string NotIncluded = "Not included in this installer.";
 
     [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr hwnd);
-    double Scale => GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96.0;
+    readonly IntPtr hwnd;
+    double Scale => GetDpiForWindow(hwnd) / 96.0;
 
     // Width of the options area the window opens with, and the width below which its two columns become one
     // (only on a screen too small for the whole page), in effective pixels
@@ -26,11 +27,31 @@ public sealed partial class MainWindow : Window
     const double ArtMinHeight = 300;
     bool oneColumn;
     int pendingFit = 1;   // the page's texts (after ReloadAsync), plus the art when there is one
-    Windows.Foundation.Size minSize;   // the smallest the window may be, in effective pixels
+    SizeInt32 minSize;    // the smallest the window may be, in screen pixels at minDpi (no limit while minDpi is 0)
+    uint minDpi;
+
+    // WindowProc sets the smallest size when Windows asks for it (WM_GETMINMAXINFO), for the display scale and the
+    // screen the window is on at that moment. OverlappedPresenter's PreferredMinimumWidth/Height can't do that:
+    // they are in screen pixels and keep their value on a screen with another scale (microsoft-ui-xaml#10452),
+    // and Windows holds the window to them while it resizes it for the new scale, before the app hears of the
+    // change, so a window dragged from a 250% screen to a 100% one would stay two and a half times too big.
+    delegate IntPtr SubclassProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data);
+    [DllImport("comctl32.dll")] static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id, UIntPtr data);
+    [DllImport("comctl32.dll")] static extern bool RemoveWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id);
+    [DllImport("comctl32.dll")] static extern IntPtr DefSubclassProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+    [StructLayout(LayoutKind.Sequential)] struct Rect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] struct MonitorInfo { public int Size; public Rect Monitor, Work; public uint Flags; }
+    const uint WM_GETMINMAXINFO = 0x0024, WM_NCDESTROY = 0x0082, MONITOR_DEFAULTTONEAREST = 2;
+    readonly SubclassProc windowProc;   // kept, so it isn't collected while Windows still calls it
 
     public MainWindow()
     {
         InitializeComponent();
+        hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        windowProc = WindowProc;
+        SetWindowSubclass(hwnd, windowProc, UIntPtr.Zero, UIntPtr.Zero);
         // The page draws the title bar itself (AppTitleBar), with the icon and title centred on the same line.
         // Windows still draws the minimize/maximize/close buttons, in the theme's colours.
         ExtendsContentIntoTitleBar = true;
@@ -119,21 +140,29 @@ public sealed partial class MainWindow : Window
             }
             else await ReloadAsync();
             FitWhenReady();
-            // The minimum size is in screen pixels, so on a screen with another display scale (the window being
-            // dragged to another monitor) it is converted, and the window can still be made as small there
-            double rasterScale = Root.XamlRoot.RasterizationScale;
-            Root.XamlRoot.Changed += (_, _) =>
-            {
-                double now = Root.XamlRoot.RasterizationScale;
-                if (Math.Abs(now - rasterScale) < 0.01) return;
-                rasterScale = now;
-                if (minSize.Width > 0 && AppWindow.Presenter is OverlappedPresenter p)
-                {
-                    p.PreferredMinimumWidth = (int)(minSize.Width * now);
-                    p.PreferredMinimumHeight = (int)(minSize.Height * now);
-                }
-            };
         };
+    }
+
+    IntPtr WindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data)
+    {
+        if (message == WM_NCDESTROY) RemoveWindowSubclass(window, windowProc, id);
+        IntPtr result = DefSubclassProc(window, message, wParam, lParam);
+        if (message == WM_GETMINMAXINFO && minDpi > 0)
+        {
+            uint dpi = GetDpiForWindow(window);
+            int width = (int)Math.Round(minSize.Width * (double)dpi / minDpi);
+            int height = (int)Math.Round(minSize.Height * (double)dpi / minDpi);
+            // A screen too small for the whole page still takes the window; the options scroll then
+            var screen = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+            if (GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), ref screen))
+            {
+                width = Math.Min(width, screen.Work.Right - screen.Work.Left);
+                height = Math.Min(height, screen.Work.Bottom - screen.Work.Top);
+            }
+            Marshal.WriteInt32(lParam, 24, width);    // MINMAXINFO.ptMinTrackSize
+            Marshal.WriteInt32(lParam, 28, height);
+        }
+        return result;
     }
 
     // The window is sized once the texts and the art are in, as both change the page's height
@@ -160,11 +189,7 @@ public sealed partial class MainWindow : Window
         RectInt32 work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         int cw = Math.Min((int)Math.Ceiling(width * scale), work.Width - 16);
         int ch = Math.Min((int)Math.Ceiling(height * scale), work.Height - 48);
-        if (AppWindow.Presenter is OverlappedPresenter p)
-        {
-            p.PreferredMinimumWidth = null;
-            p.PreferredMinimumHeight = null;
-        }
+        minDpi = 0;   // no smallest size while the window is fitted
         AppWindow.ResizeClient(new SizeInt32(cw, ch));
         CorrectHeight(3, sidebar, work);
     }
@@ -188,12 +213,8 @@ public sealed partial class MainWindow : Window
             }
             AppWindow.Move(new PointInt32(work.X + (work.Width - AppWindow.Size.Width) / 2,
                                           work.Y + Math.Max(0, (work.Height - AppWindow.Size.Height) / 2)));
-            if (AppWindow.Presenter is OverlappedPresenter q)
-            {
-                q.PreferredMinimumWidth = AppWindow.Size.Width;
-                q.PreferredMinimumHeight = AppWindow.Size.Height;
-                minSize = new Windows.Foundation.Size(AppWindow.Size.Width / Scale, AppWindow.Size.Height / Scale);
-            }
+            minSize = AppWindow.Size;
+            minDpi = GetDpiForWindow(hwnd);
         });
     }
 
@@ -207,7 +228,11 @@ public sealed partial class MainWindow : Window
             int grow = (int)Math.Ceiling((Scroller.ExtentHeight - Scroller.ViewportHeight) * Scale);
             RectInt32 work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
             grow = Math.Min(grow, work.Height - AppWindow.Size.Height);
-            if (grow > 1) AppWindow.Resize(new SizeInt32(AppWindow.Size.Width, AppWindow.Size.Height + grow));
+            if (grow <= 1) return;
+            AppWindow.Resize(new SizeInt32(AppWindow.Size.Width, AppWindow.Size.Height + grow));
+            // It grows downwards, so near the bottom of the screen it moves up by as much as went past it
+            int below = AppWindow.Position.Y + AppWindow.Size.Height - (work.Y + work.Height);
+            if (below > 0) AppWindow.Move(new PointInt32(AppWindow.Position.X, AppWindow.Position.Y - below));
         });
     }
 
