@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -27,14 +28,22 @@ public sealed partial class MainWindow : Window
     const double ArtMinHeight = 300;
     bool oneColumn;
     int pendingFit = 1;   // the page's texts (after ReloadAsync), plus the art when there is one
-    SizeInt32 minSize;    // the smallest the window may be, in screen pixels at minDpi (no limit while minDpi is 0)
-    uint minDpi;
+    bool sizingOrMoving;  // the user is dragging the window or its edge (WM_ENTERSIZEMOVE to WM_EXITSIZEMOVE)
+    IntPtr dragScreen;    // the screen that drag started on
 
-    // WindowProc sets the smallest size when Windows asks for it (WM_GETMINMAXINFO), for the display scale and the
-    // screen the window is on at that moment. OverlappedPresenter's PreferredMinimumWidth/Height can't do that:
-    // they are in screen pixels and keep their value on a screen with another scale (microsoft-ui-xaml#10452),
-    // and Windows holds the window to them while it resizes it for the new scale, before the app hears of the
-    // change, so a window dragged from a 250% screen to a 100% one would stay two and a half times too big.
+    // The smallest size that shows the whole page, in screen pixels, per display scale (DPI): measured at the
+    // scale the window was fitted at (fitDpi, 0 until then: no limit), worked out from that for other scales,
+    // and corrected there by KeepAllInView, as the page doesn't grow or shrink exactly with the scale.
+    // WindowProc gives it to Windows whenever Windows asks (WM_GETMINMAXINFO), for the scale and the screen
+    // the window is on at that moment - never more than that screen can show, so on a screen too small for the
+    // page the window still fits and the options scroll. (OverlappedPresenter.PreferredMinimumWidth/Height
+    // would have to be changed after every move instead.)
+    readonly Dictionary<uint, SizeInt32> minSizes = new();
+    uint fitDpi;
+
+    SizeInt32 MinSize(uint dpi) => minSizes.TryGetValue(dpi, out SizeInt32 size) ? size : new SizeInt32(
+        (int)Math.Round(minSizes[fitDpi].Width * (double)dpi / fitDpi), (int)Math.Round(minSizes[fitDpi].Height * (double)dpi / fitDpi));
+
     delegate IntPtr SubclassProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data);
     [DllImport("comctl32.dll")] static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id, UIntPtr data);
     [DllImport("comctl32.dll")] static extern bool RemoveWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id);
@@ -43,7 +52,9 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
     [StructLayout(LayoutKind.Sequential)] struct Rect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] struct MonitorInfo { public int Size; public Rect Monitor, Work; public uint Flags; }
-    const uint WM_GETMINMAXINFO = 0x0024, WM_NCDESTROY = 0x0082, MONITOR_DEFAULTTONEAREST = 2;
+    const uint WM_GETMINMAXINFO = 0x0024, WM_NCDESTROY = 0x0082, WM_ENTERSIZEMOVE = 0x0231, WM_EXITSIZEMOVE = 0x0232;
+    const uint WM_DPICHANGED = 0x02E0;
+    const uint MONITOR_DEFAULTTONEAREST = 2;
     readonly SubclassProc windowProc;   // kept, so it isn't collected while Windows still calls it
 
     public MainWindow()
@@ -146,13 +157,25 @@ public sealed partial class MainWindow : Window
     IntPtr WindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data)
     {
         if (message == WM_NCDESTROY) RemoveWindowSubclass(window, windowProc, id);
-        IntPtr result = DefSubclassProc(window, message, wParam, lParam);
-        if (message == WM_GETMINMAXINFO && minDpi > 0)
+        else if (message == WM_ENTERSIZEMOVE)
         {
-            uint dpi = GetDpiForWindow(window);
-            int width = (int)Math.Round(minSize.Width * (double)dpi / minDpi);
-            int height = (int)Math.Round(minSize.Height * (double)dpi / minDpi);
-            // A screen too small for the whole page still takes the window; the options scroll then
+            sizingOrMoving = true;
+            dragScreen = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+        }
+        else if (message == WM_EXITSIZEMOVE)
+        {
+            sizingOrMoving = false;
+            if (MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) != dragScreen) FitOnScreen();
+            KeepAllInView();
+        }
+        IntPtr result = DefSubclassProc(window, message, wParam, lParam);
+        // Another display scale without a drag: the window was moved to another screen by the keyboard, or the
+        // scale of its screen was changed. WinUI has resized the window for it by now.
+        if (message == WM_DPICHANGED && !sizingOrMoving) FitOnScreen();
+        if (message == WM_GETMINMAXINFO && fitDpi > 0)
+        {
+            SizeInt32 min = MinSize(GetDpiForWindow(window));
+            int width = min.Width, height = min.Height;
             var screen = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
             if (GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), ref screen))
             {
@@ -189,7 +212,7 @@ public sealed partial class MainWindow : Window
         RectInt32 work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         int cw = Math.Min((int)Math.Ceiling(width * scale), work.Width - 16);
         int ch = Math.Min((int)Math.Ceiling(height * scale), work.Height - 48);
-        minDpi = 0;   // no smallest size while the window is fitted
+        fitDpi = 0;   // no smallest size while the window is fitted
         AppWindow.ResizeClient(new SizeInt32(cw, ch));
         CorrectHeight(3, sidebar, work);
     }
@@ -205,34 +228,66 @@ public sealed partial class MainWindow : Window
             double spare = Scroller.ViewportHeight - Scroller.ExtentHeight;
             spare = Math.Min(spare, Page.ActualHeight - Page.RowDefinitions[0].Height.Value - sidebar);
             int change = (int)Math.Round(spare * Scale);
-            if (tries > 0 && Math.Abs(change) >= 2 && AppWindow.Size.Height - change <= work.Height)
+            // On a screen too small for the page, the window gets the screen's whole height and the options
+            // scroll - but never more than the screen (ResizeClient makes the window taller than asked, by about
+            // the height of a title bar, as the page draws its own)
+            change = Math.Max(change, AppWindow.Size.Height - work.Height);
+            int width = Math.Min(AppWindow.Size.Width, work.Width);
+            if (tries > 0 && (Math.Abs(change) >= 2 || width < AppWindow.Size.Width))
             {
-                AppWindow.Resize(new SizeInt32(AppWindow.Size.Width, AppWindow.Size.Height - change));
+                AppWindow.Resize(new SizeInt32(width, AppWindow.Size.Height - change));
                 CorrectHeight(tries - 1, sidebar, work);
                 return;
             }
             AppWindow.Move(new PointInt32(work.X + (work.Width - AppWindow.Size.Width) / 2,
                                           work.Y + Math.Max(0, (work.Height - AppWindow.Size.Height) / 2)));
-            minSize = AppWindow.Size;
-            minDpi = GetDpiForWindow(hwnd);
+            fitDpi = GetDpiForWindow(hwnd);
+            minSizes.Clear();
+            minSizes[fitDpi] = AppWindow.Size;
         });
     }
 
-    // A long message can make the bottom row taller and take room from the cards; the window then grows by
-    // that much (as far as the screen allows), so every card stays in view
+    // A long message can make the bottom row taller and take room from the cards, and on another display scale
+    // the page can need a few pixels more than the smallest size worked out for it. The window then grows by
+    // that much (as far as the screen allows), so every card stays in view - once the user lets go, if they
+    // are dragging the window or its edge, rather than fighting the drag.
     void KeepAllInView()
     {
-        if (pendingFit > 0 || oneColumn) return;
+        if (pendingFit > 0 || oneColumn || sizingOrMoving) return;
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
+            if (sizingOrMoving) return;
             int grow = (int)Math.Ceiling((Scroller.ExtentHeight - Scroller.ViewportHeight) * Scale);
             RectInt32 work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
             grow = Math.Min(grow, work.Height - AppWindow.Size.Height);
             if (grow <= 1) return;
             AppWindow.Resize(new SizeInt32(AppWindow.Size.Width, AppWindow.Size.Height + grow));
+            // Without a message it was the page itself that didn't fit, so at this scale the window needs at
+            // least this height from now on
+            uint dpi = GetDpiForWindow(hwnd);
+            if (fitDpi > 0 && Status.Visibility == Visibility.Collapsed && AppWindow.Size.Height > MinSize(dpi).Height)
+                minSizes[dpi] = new SizeInt32(MinSize(dpi).Width, AppWindow.Size.Height);
             // It grows downwards, so near the bottom of the screen it moves up by as much as went past it
             int below = AppWindow.Position.Y + AppWindow.Size.Height - (work.Y + work.Height);
             if (below > 0) AppWindow.Move(new PointInt32(AppWindow.Position.X, AppWindow.Position.Y - below));
+        });
+    }
+
+    // Moved to a screen it doesn't fit on (a smaller one, or one with a larger display scale), the window is made
+    // as big as that screen and moved fully onto it, so the bottom row (a message, Apply and Close) shows
+    void FitOnScreen()
+    {
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            // A maximized window already fills its screen
+            if (sizingOrMoving || fitDpi == 0 || AppWindow.Presenter is OverlappedPresenter { State: not OverlappedPresenterState.Restored })
+                return;
+            RectInt32 work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
+            if (AppWindow.Size.Width <= work.Width && AppWindow.Size.Height <= work.Height) return;
+            var size = new SizeInt32(Math.Min(AppWindow.Size.Width, work.Width), Math.Min(AppWindow.Size.Height, work.Height));
+            AppWindow.Resize(size);
+            AppWindow.Move(new PointInt32(Math.Clamp(AppWindow.Position.X, work.X, work.X + work.Width - size.Width),
+                                          Math.Clamp(AppWindow.Position.Y, work.Y, work.Y + work.Height - size.Height)));
         });
     }
 
