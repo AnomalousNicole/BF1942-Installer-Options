@@ -14,7 +14,10 @@ namespace BF1942Options;
 public sealed partial class MainWindow : Window
 {
     Settings? current;
-    bool loading;
+    bool loading;         // the switches are being set to what was read, so their events don't count as changes
+    bool reading;         // the game folder is being read
+    bool busy;            // the game folder (or the CD key) is being changed: nothing else may start meanwhile
+    bool closeWhenDone;   // the window was closed while busy, and closes once that is done
     const string NotIncluded = "Not included in this installer.";
 
     [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr hwnd);
@@ -104,6 +107,26 @@ public sealed partial class MainWindow : Window
             AppWindow.SetIcon(icon);   // taskbar and Alt-Tab
             TitleIcon.Source = new BitmapImage(new Uri(icon));
         }
+        // The separate programs the installer can add, when build.ps1 listed them (none: no note)
+        if (Game.SeparatePrograms is { } programs)
+        {
+            if (programs.Length == 0)
+            {
+                FooterNote.Text = "";
+                FooterNote.Visibility = Visibility.Collapsed;
+            }
+            else if (programs.Length == 1)
+                FooterNote.Text = programs[0] + " is a separate program: run the installer again (Custom) to add it, or remove it in Settings > Apps.";
+            else
+                FooterNote.Text = string.Join(", ", programs[..^1]) + " and " + programs[^1] +
+                                  " are separate programs: run the installer again (Custom) to add them, or remove them in Settings > Apps.";
+        }
+        AppWindow.Closing += (_, args) =>
+        {
+            if (!busy) return;
+            args.Cancel = true;
+            CloseWhenIdle();
+        };
         // Also when a message's height settles after it slides in, as the options area gets smaller then
         Scroller.SizeChanged += (_, _) => { ApplyLayout(); KeepAllInView(); };
         Status.SizeChanged += (_, _) => KeepAllInView();
@@ -143,11 +166,11 @@ public sealed partial class MainWindow : Window
         {
             if (!Game.Installed)
             {
-                Columns.IsHitTestVisible = false;
                 Columns.Opacity = 0.5;
-                ApplyButton.IsEnabled = false;
-                PlayButton.IsEnabled = JoinButton.IsEnabled = false;
-                Show(InfoBarSeverity.Error, "BF1942 Options must stay in the folder that its installer created inside the Battlefield 1942 folder.");
+                UpdateControls();
+                Show(InfoBarSeverity.Error, Game.LibraryFound
+                    ? "BF1942.exe is missing from the game folder. If an antivirus removed it, restore it there, or run the installer again."
+                    : "BF1942 Options must stay in the folder that its installer created inside the Battlefield 1942 folder.");
             }
             else await ReloadAsync();
             FitWhenReady();
@@ -308,16 +331,22 @@ public sealed partial class MainWindow : Window
 
     async Task ReloadAsync()
     {
-        ApplyButton.IsEnabled = false;
-        Columns.IsHitTestVisible = false;
+        reading = true;
+        UpdateControls();
         try { current = await Task.Run(Game.Read); }
         catch (Exception ex)
         {
+            // Nothing to switch until the state can be read: the switches no longer show what is in the folder
+            current = null;
             Game.Log("Reading the game folder failed: " + ex);
             Show(InfoBarSeverity.Error, "The game folder could not be read: " + ex.Message + " Close the game and other programs using it, then reopen this window.");
             return;
         }
-        finally { Columns.IsHitTestVisible = current != null; }   // nothing to switch until the state could be read
+        finally
+        {
+            reading = false;
+            UpdateControls();
+        }
 
         loading = true;
         Dxvk.IsChecked = current.Renderer == Renderer.DXVK;
@@ -337,7 +366,8 @@ public sealed partial class MainWindow : Window
         BF42pp.IsOn = current.BF42pp;
         Audio.IsOn = current.Audio;
         while (FontSize.Items.Count > Game.FontNames.Length) FontSize.Items.RemoveAt(FontSize.Items.Count - 1);
-        if (current.Font < 0) FontSize.Items.Add(new ComboBoxItem { Content = "Another font (not from the installer)" });
+        if (current.Font < 0)
+            FontSize.Items.Add(new ComboBoxItem { Content = Game.FontMissing ? "No font (Font.rfa is missing)" : "Another font (not from the installer)" });
         FontSize.SelectedIndex = current.Font < 0 ? Game.FontNames.Length : current.Font;
         HiResUI.IsOn = current.HiResUI;
         HiResUI.IsEnabled = Game.HiResAvailable;
@@ -368,17 +398,41 @@ public sealed partial class MainWindow : Window
         return w;
     }
 
+    // The options only while the game folder's state is known and nothing is being changed (IsEnabled, so the
+    // keyboard can't reach them either); Play and Join not while files are being changed
+    void UpdateControls()
+    {
+        Options.IsEnabled = Game.Installed && current != null && !reading && !busy;
+        PlayButton.IsEnabled = JoinButton.IsEnabled = Game.Installed && !busy;
+        UpdateApply();
+    }
+
     void UpdateApply()
     {
-        if (loading || current == null) return;
-        ApplyButton.IsEnabled = !Wanted().SameAs(current);
+        if (loading) return;
+        ApplyButton.IsEnabled = Options.IsEnabled && current != null && !Wanted().SameAs(current);
+    }
+
+    void SetBusy(bool on)
+    {
+        busy = on;
+        UpdateControls();
+        if (!on && closeWhenDone) Close();
+    }
+
+    // Closing while the game folder is being changed would stop that halfway, so the window closes once it is done
+    void CloseWhenIdle()
+    {
+        if (!busy) { Close(); return; }
+        closeWhenDone = true;
+        Show(InfoBarSeverity.Informational, "Finishing the changes first - the window closes when they are done.");
     }
 
     void Changed(object sender, RoutedEventArgs e) => UpdateApply();
     void Status_Closed(InfoBar sender, InfoBarClosedEventArgs e)
     {
         Status.Visibility = Visibility.Collapsed;
-        FooterNote.Visibility = Visibility.Visible;
+        FooterNote.Visibility = FooterNote.Text != "" ? Visibility.Visible : Visibility.Collapsed;
     }
     void FontSize_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateApply();
 
@@ -391,9 +445,11 @@ public sealed partial class MainWindow : Window
         Status.IsOpen = true;
     }
 
-    bool GameClosed()
+    // Changing the game folder only needs this folder's game closed; playing, and the CD key all copies share,
+    // need every copy closed
+    bool GameClosed(bool thisFolderOnly)
     {
-        string? running = Game.RunningProgram();
+        string? running = Game.RunningProgram(thisFolderOnly);
         if (running == null) return true;
         Show(InfoBarSeverity.Warning, running + " is running. Close the game first, then try again.");
         return false;
@@ -401,11 +457,11 @@ public sealed partial class MainWindow : Window
 
     async void Apply_Click(object sender, RoutedEventArgs e)
     {
-        if (current == null) return;
+        if (current == null || busy) return;
         Settings from = current, wanted = Wanted();
-        if (wanted.SameAs(from) || !GameClosed()) return;
+        if (wanted.SameAs(from) || !GameClosed(thisFolderOnly: true)) return;
 
-        ApplyButton.IsEnabled = false;
+        SetBusy(true);
         try
         {
             Game.Log("Apply");
@@ -419,11 +475,13 @@ public sealed partial class MainWindow : Window
                  " If an antivirus blocked it, add an exclusion for the game folder and try again. Running the installer again also puts every fix back.");
         }
         await ReloadAsync();
+        SetBusy(false);
     }
 
     async void Resolution_Click(object sender, RoutedEventArgs e)
     {
-        if (!GameClosed()) return;
+        if (busy || !GameClosed(thisFolderOnly: true)) return;
+        SetBusy(true);
         try
         {
             string mode = await Task.Run(Game.SetDisplayMode);
@@ -434,6 +492,7 @@ public sealed partial class MainWindow : Window
             Game.Log("Display mode failed: " + ex);
             Show(InfoBarSeverity.Error, "The resolution could not be changed: " + ex.Message);
         }
+        SetBusy(false);
     }
 
     async void CheckGraphics_Click(object sender, RoutedEventArgs e)
@@ -464,7 +523,8 @@ public sealed partial class MainWindow : Window
 
     async void GenerateSerial_Click(object sender, RoutedEventArgs e)
     {
-        if (!GameClosed()) return;
+        if (busy || !GameClosed(thisFolderOnly: false)) return;
+        SetBusy(true);
         try
         {
             Game.GenerateSerial();
@@ -476,13 +536,14 @@ public sealed partial class MainWindow : Window
             Show(InfoBarSeverity.Error, "The CD key could not be registered: " + ex.Message);
         }
         await ReloadAsync();
+        SetBusy(false);
     }
 
     void Guide_Click(object sender, RoutedEventArgs e) => Run(() => Game.OpenAsUser(Game.TroubleshootingPdf));
     void OpenFolder_Click(object sender, RoutedEventArgs e) => Run(() => Game.OpenAsUser(Game.Dir));
     void Discord_Click(object sender, RoutedEventArgs e) => Run(() => Game.OpenAsUser(Game.DiscordUrl));
-    void Play_Click(object sender, RoutedEventArgs e) { if (GameClosed()) Run(() => Game.Play(current?.SkipIntro ?? false, "")); }
-    void Join_Click(object sender, RoutedEventArgs e) { if (GameClosed()) Run(() => Game.Play(true, Game.ServerAddress)); }
+    void Play_Click(object sender, RoutedEventArgs e) { if (!busy && GameClosed(thisFolderOnly: false)) Run(() => Game.Play(current?.SkipIntro ?? false, "")); }
+    void Join_Click(object sender, RoutedEventArgs e) { if (!busy && GameClosed(thisFolderOnly: false)) Run(() => Game.Play(true, Game.ServerAddress)); }
 
     void Run(Action action)
     {
@@ -490,5 +551,5 @@ public sealed partial class MainWindow : Window
         catch (Exception ex) { Show(InfoBarSeverity.Error, ex.Message); }
     }
 
-    void Close_Click(object sender, RoutedEventArgs e) => Close();
+    void Close_Click(object sender, RoutedEventArgs e) => CloseWhenIdle();
 }

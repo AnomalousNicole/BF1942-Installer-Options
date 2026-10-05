@@ -20,6 +20,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
 namespace BF1942Options;
@@ -51,6 +52,7 @@ static class Game
     public static readonly string ServerShortcut;
     public static readonly string ServerAddress;
     public static readonly string DiscordUrl;
+    public static readonly string[]? SeparatePrograms;   // what the installer can add as programs of their own (null: not listed)
 
     static Game()
     {
@@ -68,6 +70,13 @@ static class Game
             if (root.TryGetProperty("serverShortcut", out JsonElement server)) ServerShortcut = server.GetString() ?? "";
             if (root.TryGetProperty("serverAddress", out JsonElement address)) ServerAddress = address.GetString() ?? "";
             if (root.TryGetProperty("discordUrl", out JsonElement discord)) DiscordUrl = discord.GetString() ?? "";
+            if (root.TryGetProperty("separatePrograms", out JsonElement programs) && programs.ValueKind == JsonValueKind.Array)
+            {
+                var names = new System.Collections.Generic.List<string>();
+                foreach (JsonElement p in programs.EnumerateArray())
+                    if (p.GetString() is { Length: > 0 } n) names.Add(n);
+                SeparatePrograms = names.ToArray();
+            }
         }
         catch { }
     }
@@ -96,7 +105,9 @@ static class Game
     public static readonly string Lib = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
     public static readonly string Dir = Path.GetFullPath(Path.Combine(Lib, ".."));
 
-    public static bool Installed => File.Exists(G("BF1942.exe")) && Directory.Exists(L(LibBF42pp));
+    public static bool LibraryFound => Directory.Exists(L(LibBF42pp));
+    public static bool GameFound => File.Exists(G("BF1942.exe"));
+    public static bool Installed => GameFound && LibraryFound;
 
     static string G(string rel) => Path.Combine(Dir, rel);
     static string L(string rel) => Path.Combine(Lib, rel);
@@ -114,6 +125,7 @@ static class Game
     public static bool HiResAvailable => File.Exists(L(LibHiRes + @"\menu.rfa")) && File.Exists(L(LibOrig + @"\menu.rfa"));
     public static bool SirenAvailable => File.Exists(L(LibSiren + @"\Battle_of_Britain.rfa")) && File.Exists(L(LibOrig + @"\Battle_of_Britain.rfa"));
     public static bool FontAvailable(int i) => File.Exists(FontFile(i));
+    public static bool FontMissing => !File.Exists(G(FontRfa));
     public static string Art => Path.Combine(AppContext.BaseDirectory, "cover.bmp");
     public static bool VulkanCheckAvailable => File.Exists(L("VulkanCheck.exe"));
     public static string TroubleshootingPdf => G(@"manual\Battlefield 1942 Troubleshooting.pdf");
@@ -184,6 +196,14 @@ static class Game
         Log("Removed " + gameRel);
     }
 
+    // Removes a file of the game folder only when it is the library's copy (one of them)
+    static void RemoveIfFrom(string gameRel, params string[] libRels)
+    {
+        foreach (string libRel in libRels)
+            if (Same(G(gameRel), L(libRel))) { Remove(gameRel); return; }
+        if (File.Exists(G(gameRel))) Log("Kept " + gameRel + " (not from the installer)");
+    }
+
     public static void Log(string text)
     {
         try { File.AppendAllText(L("Options.log"), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + text + "\r\n"); }
@@ -213,14 +233,19 @@ static class Game
         var s = new Settings();
         string d3d8 = G("d3d8.dll");
         if (!File.Exists(d3d8)) s.Renderer = Renderer.None;
-        else if (Same(d3d8, L(LibDXVK + @"\d3d8.dll"))) s.Renderer = Renderer.DXVK;
+        // DXVK needs its d3d9.dll as well. Without it (an antivirus, or an Apply cut short) the files count as
+        // neither fix, so picking DXVK again puts both back.
+        else if (Same(d3d8, L(LibDXVK + @"\d3d8.dll")))
+            s.Renderer = Same(G("d3d9.dll"), L(LibDXVK + @"\d3d9.dll")) ? Renderer.DXVK : Renderer.Unknown;
         else if (Same(d3d8, L(LibDgV + @"\D3D8.dll"))) s.Renderer = Renderer.DgVoodoo;
         else s.Renderer = Renderer.Unknown;
 
         // BF42++'s dsound.dll loads .\dsound_next.dll when it is there, so DSOAL sits behind it under that
-        // name. Without BF42++, DSOAL is the dsound.dll itself.
+        // name. Without BF42++, DSOAL is the dsound.dll itself. DSOAL also needs its OpenAL driver: without it
+        // the switch shows Off, so turning it on puts the driver back.
         s.BF42pp = Same(G("dsound.dll"), L(LibBF42pp + @"\dsound.dll"));
-        s.Audio = Same(G(s.BF42pp ? "dsound_next.dll" : "dsound.dll"), L(LibAudio + @"\dsound_next.dll"));
+        s.Audio = Same(G(s.BF42pp ? "dsound_next.dll" : "dsound.dll"), L(LibAudio + @"\dsound_next.dll")) &&
+                  Same(G("dsoal-aldrv.dll"), L(LibAudio + @"\dsoal-aldrv.dll"));
 
         s.Font = -1;
         for (int i = 0; i < FontNames.Length; i++)
@@ -231,17 +256,45 @@ static class Game
         s.Borderless = File.Exists(G("Borderless1942.exe"));
         s.Compat = File.Exists(G("BF1942.sdb"));
         string skip = State("SkipIntro");
-        s.SkipIntro = skip == "" ? ShortcutArguments(DesktopShortcut(MainShortcut)).Contains("+restart 1") : skip == "1";
+        string main = DesktopShortcut(MainShortcut);
+        s.SkipIntro = skip == "" ? OurShortcut(main) && ShortcutArguments(main).Contains("+restart 1") : skip == "1";
         return s;
     }
 
     // ---- Changing it ----
 
-    public static string? RunningProgram()
+    // The game or Borderless1942, when it runs from anywhere - or only from this game folder: a copy of the game
+    // in another folder doesn't use these files
+    public static string? RunningProgram(bool thisFolderOnly)
     {
         foreach (string name in new[] { "BF1942", "Borderless1942" })
-            if (Process.GetProcessesByName(name).Length > 0) return name + ".exe";
+            foreach (Process p in Process.GetProcessesByName(name))
+            {
+                string? path = ProcessPath(p.Id);
+                // A path that can't be read counts as this folder's, to be safe
+                if (!thisFolderOnly || path == null || path.StartsWith(Dir + @"\", StringComparison.OrdinalIgnoreCase))
+                    return name + ".exe";
+            }
         return null;
+    }
+
+    [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder name, ref int size);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+
+    // The exe a process runs, also a 64-bit one (Process.MainModule can't read those from this 32-bit process)
+    public static string? ProcessPath(int processId)
+    {
+        IntPtr process = OpenProcess(0x1000, false, processId);   // PROCESS_QUERY_LIMITED_INFORMATION
+        if (process == IntPtr.Zero) return null;
+        try
+        {
+            var name = new StringBuilder(1024);
+            int size = name.Capacity;
+            return QueryFullProcessImageName(process, 0, name, ref size) ? name.ToString(0, size) : null;
+        }
+        finally { CloseHandle(process); }
     }
 
     public static void Apply(Settings from, Settings to)
@@ -256,8 +309,9 @@ static class Game
 
         if (to.BF42pp != from.BF42pp || to.Audio != from.Audio)
         {
-            Remove("dsound.dll");
-            Remove("dsound_next.dll");
+            // Only the copies from the library go: a dsound.dll or dsound_next.dll of the player's own stays
+            RemoveIfFrom("dsound.dll", LibBF42pp + @"\dsound.dll", LibAudio + @"\dsound_next.dll");
+            RemoveIfFrom("dsound_next.dll", LibAudio + @"\dsound_next.dll");
             if (!to.BF42pp) Remove("bf42++BlackScreen.exe");   // bf42++.ini stays, with the player's settings
             if (!to.Audio) Remove("dsoal-aldrv.dll");          // alsoft.ini stays too
             if (to.BF42pp)
@@ -304,8 +358,8 @@ static class Game
 
         if (to.Borderless != from.Borderless)
         {
-            // Borderless1942 needs the game to run windowed; without it the game goes back to fullscreen
-            SetConLine(G(VideoDefault), "renderer.setFullScreen", "renderer.setFullScreen " + (to.Borderless ? "0" : "1"));
+            // The files first and the .con line last, so a copy that an antivirus blocks doesn't leave the game
+            // windowed while the switch shows Off
             if (to.Borderless)
             {
                 Copy(LibBL + @"\Borderless1942.exe", "Borderless1942.exe");
@@ -314,18 +368,21 @@ static class Game
             else
             {
                 Remove("Borderless1942.exe");
-                DeleteShortcut(DesktopShortcut(BorderlessShortcut));
+                if (OurShortcut(DesktopShortcut(BorderlessShortcut))) DeleteShortcut(DesktopShortcut(BorderlessShortcut));
             }
+            // Borderless1942 needs the game to run windowed; without it the game goes back to fullscreen
+            SetConLine(G(VideoDefault), "renderer.setFullScreen", "renderer.setFullScreen " + (to.Borderless ? "0" : "1"));
         }
 
         if (to.SkipIntro != from.SkipIntro)
         {
             SetState("SkipIntro", to.SkipIntro ? "1" : "0");
-            // Only the shortcuts that exist - a server shortcut always skips the intro
+            // Only this game folder's shortcuts that exist (a server shortcut always skips the intro), keeping any
+            // other arguments the player added
             string main = DesktopShortcut(MainShortcut);
-            if (File.Exists(main)) SetShortcutArguments(main, to.SkipIntro ? "+restart 1" : "");
+            if (OurShortcut(main)) SetShortcutArguments(main, WithSkipIntro(ShortcutArguments(main), to.SkipIntro));
             string bl = DesktopShortcut(BorderlessShortcut);
-            if (to.Borderless && File.Exists(bl)) SetShortcutArguments(bl, BorderlessArguments(to.SkipIntro));
+            if (to.Borderless && OurShortcut(bl)) SetShortcutArguments(bl, WithSkipIntro(ShortcutArguments(bl), to.SkipIntro));
         }
     }
 
@@ -367,6 +424,20 @@ static class Game
         return "-width " + w + " -height " + h + (skipIntro ? " +restart 1" : "");
     }
 
+    // A shortcut's arguments with "+restart 1" (skip the intro videos) added at the end or taken out, and with
+    // Borderless1942's -width and -height set, keeping whatever else the player added (such as +game XPack1)
+    static string WithSkipIntro(string args, bool skip)
+    {
+        string rest = Regex.Replace(Regex.Replace(args, @"\+restart\s+\d+", " "), @"\s+", " ").Trim();
+        return skip ? (rest + " +restart 1").Trim() : rest;
+    }
+
+    static string WithSize(string args, int width, int height)
+    {
+        string rest = Regex.Replace(Regex.Replace(args, @"-(width|height)\s+\d+", " "), @"\s+", " ").Trim();
+        return ("-width " + width + " -height " + height + " " + rest).Trim();
+    }
+
     // Sets game.setGameDisplayMode in every Video*.con under Mods, and the Borderless1942 shortcut's size
     public static string SetDisplayMode()
     {
@@ -375,8 +446,8 @@ static class Game
         foreach (string f in Directory.GetFiles(G("Mods"), "Video*.con", SearchOption.AllDirectories))
             SetConLine(f, "game.setGameDisplayMode", mode);
         string bl = DesktopShortcut(BorderlessShortcut);
-        if (File.Exists(G("Borderless1942.exe")) && File.Exists(bl))
-            SetShortcutArguments(bl, BorderlessArguments(State("SkipIntro") == "1"));
+        if (File.Exists(G("Borderless1942.exe")) && OurShortcut(bl))
+            SetShortcutArguments(bl, WithSize(ShortcutArguments(bl), w, h));
         Log("Display mode: " + mode);
         return w + " x " + h + " at " + r + " Hz";
     }
@@ -417,6 +488,20 @@ static class Game
             return o.GetType().InvokeMember("Arguments", BindingFlags.GetProperty, null, o, null) as string ?? "";
         }
         catch { return ""; }
+    }
+
+    // Whether a shortcut belongs to this game folder: every install on the PC uses the same shortcut names
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ComLateBinding)]
+    static bool OurShortcut(string path)
+    {
+        if (!File.Exists(path)) return false;
+        try
+        {
+            object o = Shortcut(path);
+            string target = o.GetType().InvokeMember("TargetPath", BindingFlags.GetProperty, null, o, null) as string ?? "";
+            return target.StartsWith(Dir + @"\", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
     }
 
     static void SetShortcutArguments(string path, string args)
@@ -491,13 +576,21 @@ static class Game
     {
         string args = skipIntro || server != "" ? "+restart 1" : "";
         if (server != "") args += " +joinServer " + server;
+        // With Borderless1942 on, the game is set to run in a window, so it starts through Borderless1942 like its
+        // desktop shortcut does (Borderless1942 passes the + arguments on to the game)
+        string exe = File.Exists(G("Borderless1942.exe")) ? "Borderless1942.exe" : "BF1942.exe";
+        if (exe == "Borderless1942.exe")
+        {
+            var (w, h, _) = PrimaryDisplay();
+            args = WithSize(args, w, h);
+        }
         string lnk = L("Play.lnk");
         object o = Shortcut(lnk);
-        Set(o, "TargetPath", G("BF1942.exe"));
+        Set(o, "TargetPath", G(exe));
         Set(o, "Arguments", args);
         Set(o, "WorkingDirectory", Dir);
         o.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, o, null);
-        Log("Play: BF1942.exe " + args);
+        Log("Play: " + exe + " " + args);
         OpenAsUser(lnk);
     }
 

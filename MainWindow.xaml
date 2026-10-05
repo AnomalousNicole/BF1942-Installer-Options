@@ -107,159 +107,162 @@
              bottom. The columns follow the window's width; in a narrow window the right column moves under the
              left one (MainWindow.xaml.cs), and only this part scrolls, so the title, Apply and Close stay in view. -->
         <ScrollViewer x:Name="Scroller" Grid.Row="1" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-            <Grid x:Name="Columns" ColumnSpacing="16" RowSpacing="0" VerticalAlignment="Top">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition />
-                    <ColumnDefinition />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-
-                <!-- Left: graphics fix, game fixes, CD key -->
-                <Grid x:Name="LeftColumn" RowSpacing="16">
+            <!-- Turned off as a whole (MainWindow.xaml.cs) while the game folder is read or changed; a panel can't be -->
+            <ContentControl x:Name="Options" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalAlignment="Top">
+                <Grid x:Name="Columns" ColumnSpacing="16" RowSpacing="0" VerticalAlignment="Top">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition />
+                        <ColumnDefinition />
+                    </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
+                        <RowDefinition />
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <Border x:Name="GraphicsCard" Style="{StaticResource Card}">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="GRAPHICS FIX" Style="{StaticResource CardTitle}" />
-                            <RadioButton x:Name="Dxvk" GroupName="Renderer" Checked="Changed">
-                                <StackPanel>
-                                    <TextBlock x:Name="DxvkTitle" Text="DXVK" Style="{StaticResource Setting}" />
-                                    <TextBlock Style="{StaticResource Hint}" Text="By doitsujin. Best for graphics cards with full Vulkan 1.3 support, which is most cards from 2016 or later." />
-                                </StackPanel>
-                            </RadioButton>
-                            <RadioButton x:Name="DgVoodoo" GroupName="Renderer" Checked="Changed">
-                                <StackPanel>
-                                    <TextBlock x:Name="DgVoodooTitle" Text="dgVoodoo2" Style="{StaticResource Setting}" />
-                                    <TextBlock Style="{StaticResource Hint}" Text="By Dege. For older cards and AMD Radeon RX 400/500, or if DXVK gives you a black screen." />
-                                </StackPanel>
-                            </RadioButton>
-                            <Grid ColumnSpacing="12" Margin="0,8,0,0">
-                                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <TextBlock x:Name="RendererNow" Style="{StaticResource Hint}" VerticalAlignment="Center" />
-                                <Button x:Name="CheckGraphics" Grid.Column="1" Content="Check my graphics card" Click="CheckGraphics_Click" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
+                    <!-- Left: graphics fix, game fixes, CD key -->
+                    <Grid x:Name="LeftColumn" RowSpacing="16">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
 
-                    <Border Grid.Row="1" Style="{StaticResource Card}">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="GAME FIXES" Style="{StaticResource CardTitle}" />
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock x:Name="BF42ppTitle" Text="BF42++" Style="{StaticResource Setting}" />
-                                    <TextBlock Style="{StaticResource Hint}" Text="By Casqade. Bug fixes and improvements. Its settings are in bf42++.ini." />
-                                </StackPanel>
-                                <ToggleSwitch x:Name="BF42pp" AutomationProperties.Name="BF42++" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
-                            </Grid>
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="3D positional audio" Style="{StaticResource Setting}" />
-                                    <TextBlock Style="{StaticResource Hint}" Text="DSOAL + OpenAL Soft by kcat. Surround sound for headphones and speakers." />
-                                </StackPanel>
-                                <ToggleSwitch x:Name="Audio" AutomationProperties.Name="3D positional audio" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- CD key: only offered when none is registered -->
-                    <Border x:Name="SerialCard" Grid.Row="2" Style="{StaticResource Card}">
-                        <Grid RowSpacing="6">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition />
-                            </Grid.RowDefinitions>
+                        <Border x:Name="GraphicsCard" Style="{StaticResource Card}">
                             <StackPanel Spacing="4">
-                                <TextBlock Text="CD KEY" Style="{StaticResource CardTitle}" />
-                                <TextBlock x:Name="SerialNow" Style="{StaticResource Setting}" />
-                                <TextBlock x:Name="SerialHint" Style="{StaticResource Hint}" />
+                                <TextBlock Text="GRAPHICS FIX" Style="{StaticResource CardTitle}" />
+                                <RadioButton x:Name="Dxvk" GroupName="Renderer" Checked="Changed">
+                                    <StackPanel>
+                                        <TextBlock x:Name="DxvkTitle" Text="DXVK" Style="{StaticResource Setting}" />
+                                        <TextBlock Style="{StaticResource Hint}" Text="By doitsujin. Best for graphics cards with full Vulkan 1.3 support, which is most cards from 2016 or later." />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton x:Name="DgVoodoo" GroupName="Renderer" Checked="Changed">
+                                    <StackPanel>
+                                        <TextBlock x:Name="DgVoodooTitle" Text="dgVoodoo2" Style="{StaticResource Setting}" />
+                                        <TextBlock Style="{StaticResource Hint}" Text="By Dege. For older cards and AMD Radeon RX 400/500, or if DXVK gives you a black screen." />
+                                    </StackPanel>
+                                </RadioButton>
+                                <Grid ColumnSpacing="12" Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="RendererNow" Style="{StaticResource Hint}" VerticalAlignment="Center" />
+                                    <Button x:Name="CheckGraphics" Grid.Column="1" Content="Check my graphics card" Click="CheckGraphics_Click" />
+                                </Grid>
                             </StackPanel>
-                            <Button x:Name="GenerateSerial" Grid.Row="1" Content="Generate a CD key" Click="GenerateSerial_Click"
-                                    HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,4,0,0" />
-                        </Grid>
-                    </Border>
-                </Grid>
+                        </Border>
 
-                <!-- Right: extras, display -->
-                <Grid x:Name="RightColumn" Grid.Column="1" RowSpacing="16">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <Border Style="{StaticResource Card}">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="EXTRAS" Style="{StaticResource CardTitle}" />
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="Battle of Britain - disable siren" Style="{StaticResource Setting}" />
-                                    <TextBlock x:Name="SirenHint" Style="{StaticResource Hint}" Text="By Nicole @ MoonGamers. Removes the air raid siren from Battle of Britain." />
-                                </StackPanel>
-                                <ToggleSwitch x:Name="NoSiren" AutomationProperties.Name="Battle of Britain - disable siren" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
-                            </Grid>
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="Compatibility Profile" Style="{StaticResource Setting}" />
-                                    <TextBlock x:Name="CompatHint" Style="{StaticResource Hint}" Text="By PCGamingWiki. Windows compatibility fixes. Only turn this on if the game crashes without it." />
-                                </StackPanel>
-                                <ToggleSwitch x:Name="Compat" AutomationProperties.Name="Compatibility Profile" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Grid.Row="1" Style="{StaticResource Card}">
-                        <Grid RowSpacing="10">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition />
-                            </Grid.RowDefinitions>
+                        <Border Grid.Row="1" Style="{StaticResource Card}">
                             <StackPanel Spacing="10">
-                                <TextBlock Text="DISPLAY" Style="{StaticResource CardTitle}" />
-                                <ComboBox x:Name="FontSize" Header="Font size" HorizontalAlignment="Stretch" SelectionChanged="FontSize_SelectionChanged" />
+                                <TextBlock Text="GAME FIXES" Style="{StaticResource CardTitle}" />
                                 <Grid ColumnSpacing="16">
                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                     <StackPanel>
-                                        <TextBlock Text="Higher resolution UI" Style="{StaticResource Setting}" />
-                                        <TextBlock x:Name="HiResHint" Style="{StaticResource Hint}" Text="Sharper menus and HUD." />
+                                        <TextBlock x:Name="BF42ppTitle" Text="BF42++" Style="{StaticResource Setting}" />
+                                        <TextBlock Style="{StaticResource Hint}" Text="By Casqade. Bug fixes and improvements. Its settings are in bf42++.ini." />
                                     </StackPanel>
-                                    <ToggleSwitch x:Name="HiResUI" AutomationProperties.Name="Higher resolution UI" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
+                                    <ToggleSwitch x:Name="BF42pp" AutomationProperties.Name="BF42++" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
                                 </Grid>
                                 <Grid ColumnSpacing="16">
                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                     <StackPanel>
-                                        <TextBlock Text="Borderless1942" Style="{StaticResource Setting}" />
-                                        <TextBlock x:Name="BorderlessHint" Style="{StaticResource Hint}" Text="By Turnerj, LANCommander and Nicole. A borderless window, so Alt-Tab doesn't minimize the game. Adds a desktop shortcut." />
+                                        <TextBlock Text="3D positional audio" Style="{StaticResource Setting}" />
+                                        <TextBlock Style="{StaticResource Hint}" Text="DSOAL + OpenAL Soft by kcat. Surround sound for headphones and speakers." />
                                     </StackPanel>
-                                    <ToggleSwitch x:Name="Borderless" AutomationProperties.Name="Borderless1942" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
-                                </Grid>
-                                <Grid ColumnSpacing="16">
-                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="Skip the intro videos" Style="{StaticResource Setting}" />
-                                        <TextBlock x:Name="SkipHint" Style="{StaticResource Hint}" Text="For the Battlefield 1942 desktop shortcuts and the Play button." />
-                                    </StackPanel>
-                                    <ToggleSwitch x:Name="SkipIntro" AutomationProperties.Name="Skip the intro videos" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
+                                    <ToggleSwitch x:Name="Audio" AutomationProperties.Name="3D positional audio" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
                                 </Grid>
                             </StackPanel>
-                            <Grid Grid.Row="1" ColumnSpacing="12" VerticalAlignment="Bottom" Margin="0,4,0,0">
-                                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <TextBlock x:Name="ScreenNow" Style="{StaticResource Hint}" VerticalAlignment="Center" />
-                                <Button Grid.Column="1" Content="Use my screen's resolution" Click="Resolution_Click" />
+                        </Border>
+
+                        <!-- CD key: only offered when none is registered -->
+                        <Border x:Name="SerialCard" Grid.Row="2" Style="{StaticResource Card}">
+                            <Grid RowSpacing="6">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition />
+                                </Grid.RowDefinitions>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="CD KEY" Style="{StaticResource CardTitle}" />
+                                    <TextBlock x:Name="SerialNow" Style="{StaticResource Setting}" />
+                                    <TextBlock x:Name="SerialHint" Style="{StaticResource Hint}" />
+                                </StackPanel>
+                                <Button x:Name="GenerateSerial" Grid.Row="1" Content="Generate a CD key" Click="GenerateSerial_Click"
+                                        HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,4,0,0" />
                             </Grid>
-                        </Grid>
-                    </Border>
+                        </Border>
+                    </Grid>
+
+                    <!-- Right: extras, display -->
+                    <Grid x:Name="RightColumn" Grid.Column="1" RowSpacing="16">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="EXTRAS" Style="{StaticResource CardTitle}" />
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Battle of Britain - disable siren" Style="{StaticResource Setting}" />
+                                        <TextBlock x:Name="SirenHint" Style="{StaticResource Hint}" Text="By Nicole @ MoonGamers. Removes the air raid siren from Battle of Britain." />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="NoSiren" AutomationProperties.Name="Battle of Britain - disable siren" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
+                                </Grid>
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Compatibility Profile" Style="{StaticResource Setting}" />
+                                        <TextBlock x:Name="CompatHint" Style="{StaticResource Hint}" Text="By PCGamingWiki. Windows compatibility fixes. Only turn this on if the game crashes without it." />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="Compat" AutomationProperties.Name="Compatibility Profile" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Style="{StaticResource Card}">
+                            <Grid RowSpacing="10">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition />
+                                </Grid.RowDefinitions>
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="DISPLAY" Style="{StaticResource CardTitle}" />
+                                    <ComboBox x:Name="FontSize" Header="Font size" HorizontalAlignment="Stretch" SelectionChanged="FontSize_SelectionChanged" />
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Higher resolution UI" Style="{StaticResource Setting}" />
+                                            <TextBlock x:Name="HiResHint" Style="{StaticResource Hint}" Text="Sharper menus and HUD." />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="HiResUI" AutomationProperties.Name="Higher resolution UI" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
+                                    </Grid>
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Borderless1942" Style="{StaticResource Setting}" />
+                                            <TextBlock x:Name="BorderlessHint" Style="{StaticResource Hint}" Text="By Turnerj, LANCommander and Nicole. A borderless window, so Alt-Tab doesn't minimize the game. Adds a desktop shortcut." />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="Borderless" AutomationProperties.Name="Borderless1942" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
+                                    </Grid>
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Skip the intro videos" Style="{StaticResource Setting}" />
+                                            <TextBlock x:Name="SkipHint" Style="{StaticResource Hint}" Text="For the Battlefield 1942 desktop shortcuts and the Play button." />
+                                        </StackPanel>
+                                        <ToggleSwitch x:Name="SkipIntro" AutomationProperties.Name="Skip the intro videos" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
+                                    </Grid>
+                                </StackPanel>
+                                <Grid Grid.Row="1" ColumnSpacing="12" VerticalAlignment="Bottom" Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ScreenNow" Style="{StaticResource Hint}" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1" Content="Use my screen's resolution" Click="Resolution_Click" />
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </Grid>
                 </Grid>
-            </Grid>
+            </ContentControl>
         </ScrollViewer>
 
 

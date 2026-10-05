@@ -12,7 +12,9 @@ public partial class App : Application
     Window? window;
     static Mutex? instance;
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindow(string? className, string windowName);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string? className, string windowName);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out int processId);
+    [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
 
@@ -31,10 +33,16 @@ public partial class App : Application
         instance = new Mutex(true, @"Local\BF1942Options-" + key, out bool first);
         if (!first)
         {
-            IntPtr open = FindWindow(null, "Battlefield 1942 Options");
+            // The window of this install's app: another install's app can be open too, with the same title
+            IntPtr open = IntPtr.Zero;
+            while ((open = FindWindowEx(IntPtr.Zero, open, null, "Battlefield 1942 Options")) != IntPtr.Zero)
+            {
+                GetWindowThreadProcessId(open, out int processId);
+                if (string.Equals(Game.ProcessPath(processId), Environment.ProcessPath, StringComparison.OrdinalIgnoreCase)) break;
+            }
             if (open != IntPtr.Zero)
             {
-                ShowWindow(open, 9);   // SW_RESTORE, in case it is minimized
+                if (IsIconic(open)) ShowWindow(open, 9);   // SW_RESTORE when minimized; a maximized window stays so
                 SetForegroundWindow(open);
             }
             Exit();

@@ -22,7 +22,7 @@ One window, in a Battlefield 1942 theme, with every option on one page:
 | Resolution | **Use my screen's resolution** sets every `Video*.con` to the main screen |
 | CD key | **Generate a CD key**, only when no valid key is registered |
 
-The left side has **Play**, **Join** (when the installer has a server shortcut), **Join our Discord** (when it has a Discord invite), **Open game folder** and the **Troubleshooting guide**. The app runs as administrator, but it starts the game, folders and links as the signed-in user.
+The left side has **Play**, **Join** (when the installer has a server shortcut), **Join our Discord** (when it has a Discord invite), **Open game folder** and the **Troubleshooting guide**. With Borderless1942 on, **Play** and **Join** start the game through it, like its desktop shortcut. The app runs as administrator, but it starts the game, folders and links as the signed-in user.
 
 ## How it works
 
@@ -36,6 +36,7 @@ The left side has **Play**, **Join** (when the installer has a server shortcut),
   | `generateSerial` | Whether the CD key card is shown (`generateSerial`) |
   | `serverShortcut`, `serverAddress` | The server shortcut's name and `ip:port`, for **Join** (`serverShortcutName`, `serverAddress`) |
   | `discordUrl` | An invite for **Join our Discord** (`discordUrl`) |
+  | `separatePrograms` | The separate programs the installer can add (DataField42, Battlefield Rich Presence, PunkBuster: the ones the build includes), named in the note at the bottom. An empty list hides the note |
 
 - **`cover.bmp`** next to the exe, when there is one, is shown at the top of the left side. `build.ps1` copies your largest `branding\WizardImage*.bmp`; without it the side shows the game's name.
 - **Administrator rights.** The manifest asks for them, because the app writes to the game folder and `HKLM`, and runs `sdbinst`. Every change is logged to `{app}\Options\Options.log`.
