@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- BF1942 Options: a WinUI 3 app that turns the installer's fixes and extras on and off after install.
+       build.ps1 publishes it self-contained (.NET and the Windows App SDK are inside its folder, so players
+       install nothing extra) as 32-bit, to build\options. Setup installs that folder in a subfolder of the
+       library it keeps in the game folder.
+       Pass /p:GameIcon=<path to bf1942.ico>: the icon Setup uses, for the exe, its shortcuts and the window.
+       build.ps1 then adds options.json (state key, CD key and server shortcut settings) and, when there is
+       welcome-page art, cover.bmp to the published folder. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>BF1942Options</RootNamespace>
+    <AssemblyName>BF1942 Options</AssemblyName>
+    <Product>Battlefield 1942 Options</Product>
+    <Nullable>enable</Nullable>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- 32-bit: runs on every Windows 10/11 PC Setup supports and reads the same registry view as Setup -->
+    <Platforms>x86</Platforms>
+    <PlatformTarget>x86</PlatformTarget>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Trimming drops the parts of .NET and the Windows SDK projection the app never uses (about two thirds of
+         the folder). Shortcuts are edited through WScript.Shell late binding, which needs built-in COM interop. -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationIcon Condition="'$(GameIcon)' != ''">$(GameIcon)</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <!-- WinUI 2.3.9 asks for 2.1.8, which is not on nuget.org; named here so the restore has no warning -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(GameIcon)' != ''">
+    <Content Include="$(GameIcon)" Link="bf1942.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

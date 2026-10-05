@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Battlefield 1942 look: always dark, in the near-black, brass and khaki of the box art that Setup shows
+     (Installer Source\Images), with Bahnschrift (built into Windows 10 and 11) for the stencil-like headings. -->
+<Application
+    x:Class="BF1942Options.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    RequestedTheme="Dark">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Brass instead of the Windows accent colour: switches, radio buttons, links and the Apply button -->
+            <Color x:Key="SystemAccentColor">#C89646</Color>
+            <Color x:Key="SystemAccentColorLight1">#D4A85E</Color>
+            <Color x:Key="SystemAccentColorLight2">#DDB671</Color>
+            <Color x:Key="SystemAccentColorLight3">#E8CD96</Color>
+            <Color x:Key="SystemAccentColorDark1">#A87A34</Color>
+            <Color x:Key="SystemAccentColorDark2">#86602A</Color>
+            <Color x:Key="SystemAccentColorDark3">#5E431D</Color>
+
+            <Color x:Key="ArtBlack">#0E0D0C</Color>
+            <SolidColorBrush x:Key="ArtBlackBrush" Color="#0E0D0C" />
+            <SolidColorBrush x:Key="PageBrush" Color="#16140F" />
+            <SolidColorBrush x:Key="CardBrush" Color="#211E17" />
+            <SolidColorBrush x:Key="CardStrokeBrush" Color="#3A3428" />
+            <SolidColorBrush x:Key="BrassBrush" Color="#D9A84F" />
+            <SolidColorBrush x:Key="KhakiBrush" Color="#E8DCC0" />
+            <SolidColorBrush x:Key="HintBrush" Color="#A79E8A" />
+            <FontFamily x:Key="StencilFont">Bahnschrift</FontFamily>
+
+            <!-- A card per group -->
+            <Style x:Key="Card" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource CardBrush}" />
+                <Setter Property="BorderBrush" Value="{StaticResource CardStrokeBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="Padding" Value="16,12,16,14" />
+            </Style>
+            <Style x:Key="CardTitle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource StencilFont}" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="CharacterSpacing" Value="120" />
+                <Setter Property="Foreground" Value="{StaticResource BrassBrush}" />
+                <Setter Property="Margin" Value="0,0,0,8" />
+            </Style>
+            <Style x:Key="Setting" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{StaticResource KhakiBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="Hint" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+                <Setter Property="Foreground" Value="{StaticResource HintBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="Switch" TargetType="ToggleSwitch">
+                <Setter Property="MinWidth" Value="0" />
+                <!-- Just the switch itself, so it lines up with the right edge of its card -->
+                <Setter Property="Width" Value="52" />
+                <Setter Property="HorizontalAlignment" Value="Right" />
+                <!-- No On/Off text next to the switch: it takes room from the descriptions and the switch shows it -->
+                <Setter Property="OnContent" Value="" />
+                <Setter Property="OffContent" Value="" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
