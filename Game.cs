@@ -331,14 +331,10 @@ static class Game
         if (to.BF42pp != from.BF42pp || to.Audio != from.Audio)
         {
             // dsound.dll is BF42++'s, or DSOAL's without BF42++; dsound_next.dll is DSOAL's behind BF42++. A file
-            // that already is the right one isn't touched, so a copy that fails can't turn the other switch off.
+            // that already is the right one isn't touched, everything is copied before anything goes, and
+            // dsound_next.dll before dsound.dll, so a copy that fails can't turn the other switch off.
             string? dsound = to.BF42pp ? LibBF42pp + @"\dsound.dll" : to.Audio ? LibAudio + @"\dsound_next.dll" : null;
             string? dsoundNext = to.BF42pp && to.Audio ? LibAudio + @"\dsound_next.dll" : null;
-            // Only the copies from the library go: a dsound.dll or dsound_next.dll of the player's own stays
-            if (dsound == null) RemoveIfFrom("dsound.dll", LibBF42pp + @"\dsound.dll", LibAudio + @"\dsound_next.dll");
-            if (dsoundNext == null) RemoveIfFrom("dsound_next.dll", LibAudio + @"\dsound_next.dll");
-            if (!to.BF42pp) Remove("bf42++BlackScreen.exe");   // bf42++.ini stays, with the player's settings
-            if (!to.Audio) Remove("dsoal-aldrv.dll");          // alsoft.ini stays too
             if (to.BF42pp)
             {
                 Copy(LibBF42pp + @"\bf42++BlackScreen.exe", "bf42++BlackScreen.exe");
@@ -349,8 +345,13 @@ static class Game
                 Copy(LibAudio + @"\dsoal-aldrv.dll", "dsoal-aldrv.dll");
                 CopyIfMissing(LibAudio + @"\alsoft.ini", "alsoft.ini");
             }
-            if (dsound != null && !Same(G("dsound.dll"), L(dsound))) Copy(dsound, "dsound.dll");
             if (dsoundNext != null && !Same(G("dsound_next.dll"), L(dsoundNext))) Copy(dsoundNext, "dsound_next.dll");
+            if (dsound != null && !Same(G("dsound.dll"), L(dsound))) Copy(dsound, "dsound.dll");
+            // Only the copies from the library go: a dsound.dll or dsound_next.dll of the player's own stays
+            if (dsound == null) RemoveIfFrom("dsound.dll", LibBF42pp + @"\dsound.dll", LibAudio + @"\dsound_next.dll");
+            if (dsoundNext == null) RemoveIfFrom("dsound_next.dll", LibAudio + @"\dsound_next.dll");
+            if (!to.BF42pp) Remove("bf42++BlackScreen.exe");   // bf42++.ini stays, with the player's settings
+            if (!to.Audio) Remove("dsoal-aldrv.dll");          // alsoft.ini stays too
         }
 
         if (to.Font != from.Font && to.Font >= 0)
@@ -383,20 +384,16 @@ static class Game
 
         if (to.Borderless != from.Borderless)
         {
-            // The files first and the .con line last, so a copy that an antivirus blocks doesn't leave the game
-            // windowed while the switch shows Off
-            if (to.Borderless)
-            {
-                Copy(LibBL + @"\Borderless1942.exe", "Borderless1942.exe");
-                SaveShortcut(DesktopShortcut(BorderlessShortcut), G("Borderless1942.exe"), BorderlessArguments(to.SkipIntro));
-            }
-            else
-            {
-                Remove("Borderless1942.exe");
-                if (OurShortcut(DesktopShortcut(BorderlessShortcut))) DeleteShortcut(DesktopShortcut(BorderlessShortcut));
-            }
+            // The exe first and the .con line next, so a copy that an antivirus blocks doesn't leave the game
+            // windowed while the switch shows Off; the shortcut last, as the switch doesn't depend on it
+            if (to.Borderless) Copy(LibBL + @"\Borderless1942.exe", "Borderless1942.exe");
+            else Remove("Borderless1942.exe");
             // Borderless1942 needs the game to run windowed; without it the game goes back to fullscreen
             SetConLine(G(VideoDefault), "renderer.setFullScreen", "renderer.setFullScreen " + (to.Borderless ? "0" : "1"));
+            if (to.Borderless)
+                SaveShortcut(DesktopShortcut(BorderlessShortcut), G("Borderless1942.exe"), BorderlessArguments(to.SkipIntro));
+            else if (OurShortcut(DesktopShortcut(BorderlessShortcut)))
+                DeleteShortcut(DesktopShortcut(BorderlessShortcut));
         }
 
         if (to.SkipIntro != from.SkipIntro)

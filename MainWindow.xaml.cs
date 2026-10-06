@@ -350,6 +350,7 @@ public sealed partial class MainWindow : Window
             // Nothing to switch until the state can be read: the switches no longer show what is in the folder
             current = null;
             Game.Log("Reading the game folder failed: " + ex);
+            closeWhenDone = false;   // after an Apply the window was closed during: it stays open to show this
             Show(InfoBarSeverity.Error, "The game folder could not be read: " + ex.Message + " Close the game and other programs using it, then reopen this window.");
             return;
         }
