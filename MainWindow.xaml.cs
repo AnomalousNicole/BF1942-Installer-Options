@@ -18,6 +18,7 @@ public sealed partial class MainWindow : Window
     bool reading;         // the game folder is being read
     bool busy;            // the game folder (or the CD key) is being changed: nothing else may start meanwhile
     bool closeWhenDone;   // the window was closed while busy, and closes once that is done
+    bool checking;        // the graphics card check runs: it picks a renderer when done, so no Apply meanwhile
     const string NotIncluded = "Not included in this installer.";
 
     [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr hwnd);
@@ -329,6 +330,16 @@ public sealed partial class MainWindow : Window
         Columns.RowSpacing = one ? 16 : 0;
     }
 
+    void ShowSerial()
+    {
+        bool serial = Game.HasValidSerial();
+        SerialNow.Text = serial ? "A valid CD key is registered." : "No valid CD key was found.";
+        SerialHint.Text = serial
+            ? "Nothing to do. Battlefield 1942 uses the key that is already there."
+            : "Battlefield 1942 needs one to play online. Generate a random key; it is removed again when you uninstall the game.";
+        GenerateSerial.IsEnabled = !serial;
+    }
+
     async Task ReloadAsync()
     {
         reading = true;
@@ -357,12 +368,7 @@ public sealed partial class MainWindow : Window
             Renderer.None => "No graphics fix is installed. Pick one and click Apply.",
             _ => "Installed now: " + Game.RendererName(current.Renderer) + ".",
         };
-        bool serial = Game.HasValidSerial();
-        SerialNow.Text = serial ? "A valid CD key is registered." : "No valid CD key was found.";
-        SerialHint.Text = serial
-            ? "Nothing to do. Battlefield 1942 uses the key that is already there."
-            : "Battlefield 1942 needs one to play online. Generate a random key; it is removed again when you uninstall the game.";
-        GenerateSerial.IsEnabled = !serial;
+        ShowSerial();
         BF42pp.IsOn = current.BF42pp;
         Audio.IsOn = current.Audio;
         while (FontSize.Items.Count > Game.FontNames.Length) FontSize.Items.RemoveAt(FontSize.Items.Count - 1);
@@ -410,7 +416,7 @@ public sealed partial class MainWindow : Window
     void UpdateApply()
     {
         if (loading) return;
-        ApplyButton.IsEnabled = Options.IsEnabled && current != null && !Wanted().SameAs(current);
+        ApplyButton.IsEnabled = Options.IsEnabled && current != null && !checking && !Wanted().SameAs(current);
     }
 
     void SetBusy(bool on)
@@ -457,7 +463,7 @@ public sealed partial class MainWindow : Window
 
     async void Apply_Click(object sender, RoutedEventArgs e)
     {
-        if (current == null || busy) return;
+        if (current == null || busy || checking) return;
         Settings from = current, wanted = Wanted();
         if (wanted.SameAs(from) || !GameClosed(thisFolderOnly: true)) return;
 
@@ -471,6 +477,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             Game.Log("Failed: " + ex);
+            closeWhenDone = false;   // the window stays open, so the player sees what went wrong
             Show(InfoBarSeverity.Error, "Not everything could be changed: " + ex.Message +
                  " If an antivirus blocked it, add an exclusion for the game folder and try again. Running the installer again also puts every fix back.");
         }
@@ -490,6 +497,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             Game.Log("Display mode failed: " + ex);
+            closeWhenDone = false;
             Show(InfoBarSeverity.Error, "The resolution could not be changed: " + ex.Message);
         }
         SetBusy(false);
@@ -498,10 +506,13 @@ public sealed partial class MainWindow : Window
     async void CheckGraphics_Click(object sender, RoutedEventArgs e)
     {
         CheckGraphics.IsEnabled = false;
+        checking = true;
+        UpdateApply();
         (int code, string details) result;
         try { result = await Task.Run(() => (Game.RunVulkanCheck(out string d), d)); }
         catch (Exception ex) { result = (-1, ex.Message); }
         CheckGraphics.IsEnabled = true;
+        checking = false;
 
         string details = result.details.Replace("\r\n", " ").Replace('\n', ' ');
         // Whether the recommended fix is the one installed now - not whether something else is waiting for Apply
@@ -519,9 +530,10 @@ public sealed partial class MainWindow : Window
         }
         else
             Show(InfoBarSeverity.Warning, "The check couldn't run, which is usually an antivirus blocking it. Pick DXVK for most graphics cards from 2016 or later, otherwise dgVoodoo2. " + details);
+        UpdateApply();
     }
 
-    async void GenerateSerial_Click(object sender, RoutedEventArgs e)
+    void GenerateSerial_Click(object sender, RoutedEventArgs e)
     {
         if (busy || !GameClosed(thisFolderOnly: false)) return;
         SetBusy(true);
@@ -533,16 +545,18 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             Game.Log("CD key failed: " + ex);
+            closeWhenDone = false;
             Show(InfoBarSeverity.Error, "The CD key could not be registered: " + ex.Message);
         }
-        await ReloadAsync();
+        // Only the CD key is read again: the switches keep what the player picked and hasn't applied yet
+        ShowSerial();
         SetBusy(false);
     }
 
     void Guide_Click(object sender, RoutedEventArgs e) => Run(() => Game.OpenAsUser(Game.TroubleshootingPdf));
     void OpenFolder_Click(object sender, RoutedEventArgs e) => Run(() => Game.OpenAsUser(Game.Dir));
     void Discord_Click(object sender, RoutedEventArgs e) => Run(() => Game.OpenAsUser(Game.DiscordUrl));
-    void Play_Click(object sender, RoutedEventArgs e) { if (!busy && GameClosed(thisFolderOnly: false)) Run(() => Game.Play(current?.SkipIntro ?? false, "")); }
+    void Play_Click(object sender, RoutedEventArgs e) { if (!busy && GameClosed(thisFolderOnly: false)) Run(() => Game.Play(current?.SkipIntro ?? Game.ReadSkipIntro(), "")); }
     void Join_Click(object sender, RoutedEventArgs e) { if (!busy && GameClosed(thisFolderOnly: false)) Run(() => Game.Play(true, Game.ServerAddress)); }
 
     void Run(Action action)

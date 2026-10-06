@@ -14,6 +14,7 @@
 using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -206,7 +207,7 @@ static class Game
 
     public static void Log(string text)
     {
-        try { File.AppendAllText(L("Options.log"), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + text + "\r\n"); }
+        try { File.AppendAllText(L("Options.log"), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "  " + text + "\r\n"); }
         catch { }
     }
 
@@ -233,11 +234,13 @@ static class Game
         var s = new Settings();
         string d3d8 = G("d3d8.dll");
         if (!File.Exists(d3d8)) s.Renderer = Renderer.None;
-        // DXVK needs its d3d9.dll as well. Without it (an antivirus, or an Apply cut short) the files count as
-        // neither fix, so picking DXVK again puts both back.
+        // DXVK needs its d3d9.dll as well, and each fix its config file (the player may have edited that, so it
+        // only has to be there). Without them (an antivirus, or an Apply cut short) the files count as neither
+        // fix, so picking the fix again puts them all back.
         else if (Same(d3d8, L(LibDXVK + @"\d3d8.dll")))
-            s.Renderer = Same(G("d3d9.dll"), L(LibDXVK + @"\d3d9.dll")) ? Renderer.DXVK : Renderer.Unknown;
-        else if (Same(d3d8, L(LibDgV + @"\D3D8.dll"))) s.Renderer = Renderer.DgVoodoo;
+            s.Renderer = Same(G("d3d9.dll"), L(LibDXVK + @"\d3d9.dll")) && HasConfig(LibDXVK, "dxvk.conf") ? Renderer.DXVK : Renderer.Unknown;
+        else if (Same(d3d8, L(LibDgV + @"\D3D8.dll")))
+            s.Renderer = HasConfig(LibDgV, "dgVoodoo.conf") ? Renderer.DgVoodoo : Renderer.Unknown;
         else s.Renderer = Renderer.Unknown;
 
         // BF42++'s dsound.dll loads .\dsound_next.dll when it is there, so DSOAL sits behind it under that
@@ -255,10 +258,21 @@ static class Game
         s.NoSiren = Same(G(BobRfa), L(LibSiren + @"\Battle_of_Britain.rfa"));
         s.Borderless = File.Exists(G("Borderless1942.exe"));
         s.Compat = File.Exists(G("BF1942.sdb"));
-        string skip = State("SkipIntro");
-        string main = DesktopShortcut(MainShortcut);
-        s.SkipIntro = skip == "" ? OurShortcut(main) && ShortcutArguments(main).Contains("+restart 1") : skip == "1";
+        s.SkipIntro = ReadSkipIntro();
         return s;
+    }
+
+    // In the game folder, when the library has one
+    static bool HasConfig(string libFolder, string name) =>
+        File.Exists(G(name)) || !File.Exists(L(libFolder + @"\" + name));
+
+    // From the state key, or from our desktop shortcut when an older Setup didn't write it
+    public static bool ReadSkipIntro()
+    {
+        string skip = State("SkipIntro");
+        if (skip != "") return skip == "1";
+        string main = DesktopShortcut(MainShortcut);
+        return OurShortcut(main) && Regex.IsMatch(ShortcutArguments(main), @"\+restart\s+1(?!\d)", RegexOptions.IgnoreCase);
     }
 
     // ---- Changing it ----
@@ -268,13 +282,20 @@ static class Game
     public static string? RunningProgram(bool thisFolderOnly)
     {
         foreach (string name in new[] { "BF1942", "Borderless1942" })
-            foreach (Process p in Process.GetProcessesByName(name))
+        {
+            Process[] running = Process.GetProcessesByName(name);
+            try
             {
-                string? path = ProcessPath(p.Id);
-                // A path that can't be read counts as this folder's, to be safe
-                if (!thisFolderOnly || path == null || path.StartsWith(Dir + @"\", StringComparison.OrdinalIgnoreCase))
-                    return name + ".exe";
+                foreach (Process p in running)
+                {
+                    string? path = ProcessPath(p.Id);
+                    // A path that can't be read counts as this folder's, to be safe
+                    if (!thisFolderOnly || path == null || path.StartsWith(Dir + @"\", StringComparison.OrdinalIgnoreCase))
+                        return name + ".exe";
+                }
             }
+            finally { foreach (Process p in running) p.Dispose(); }
+        }
         return null;
     }
 
@@ -309,14 +330,17 @@ static class Game
 
         if (to.BF42pp != from.BF42pp || to.Audio != from.Audio)
         {
+            // dsound.dll is BF42++'s, or DSOAL's without BF42++; dsound_next.dll is DSOAL's behind BF42++. A file
+            // that already is the right one isn't touched, so a copy that fails can't turn the other switch off.
+            string? dsound = to.BF42pp ? LibBF42pp + @"\dsound.dll" : to.Audio ? LibAudio + @"\dsound_next.dll" : null;
+            string? dsoundNext = to.BF42pp && to.Audio ? LibAudio + @"\dsound_next.dll" : null;
             // Only the copies from the library go: a dsound.dll or dsound_next.dll of the player's own stays
-            RemoveIfFrom("dsound.dll", LibBF42pp + @"\dsound.dll", LibAudio + @"\dsound_next.dll");
-            RemoveIfFrom("dsound_next.dll", LibAudio + @"\dsound_next.dll");
+            if (dsound == null) RemoveIfFrom("dsound.dll", LibBF42pp + @"\dsound.dll", LibAudio + @"\dsound_next.dll");
+            if (dsoundNext == null) RemoveIfFrom("dsound_next.dll", LibAudio + @"\dsound_next.dll");
             if (!to.BF42pp) Remove("bf42++BlackScreen.exe");   // bf42++.ini stays, with the player's settings
             if (!to.Audio) Remove("dsoal-aldrv.dll");          // alsoft.ini stays too
             if (to.BF42pp)
             {
-                Copy(LibBF42pp + @"\dsound.dll", "dsound.dll");
                 Copy(LibBF42pp + @"\bf42++BlackScreen.exe", "bf42++BlackScreen.exe");
                 CopyIfMissing(LibBF42pp + @"\bf42++.ini", "bf42++.ini");
             }
@@ -324,8 +348,9 @@ static class Game
             {
                 Copy(LibAudio + @"\dsoal-aldrv.dll", "dsoal-aldrv.dll");
                 CopyIfMissing(LibAudio + @"\alsoft.ini", "alsoft.ini");
-                Copy(LibAudio + @"\dsound_next.dll", to.BF42pp ? "dsound_next.dll" : "dsound.dll");
             }
+            if (dsound != null && !Same(G("dsound.dll"), L(dsound))) Copy(dsound, "dsound.dll");
+            if (dsoundNext != null && !Same(G("dsound_next.dll"), L(dsoundNext))) Copy(dsoundNext, "dsound_next.dll");
         }
 
         if (to.Font != from.Font && to.Font >= 0)
@@ -428,13 +453,13 @@ static class Game
     // Borderless1942's -width and -height set, keeping whatever else the player added (such as +game XPack1)
     static string WithSkipIntro(string args, bool skip)
     {
-        string rest = Regex.Replace(Regex.Replace(args, @"\+restart\s+\d+", " "), @"\s+", " ").Trim();
+        string rest = Regex.Replace(args, @"\s*\+restart\s+\d+", "", RegexOptions.IgnoreCase).Trim();
         return skip ? (rest + " +restart 1").Trim() : rest;
     }
 
     static string WithSize(string args, int width, int height)
     {
-        string rest = Regex.Replace(Regex.Replace(args, @"-(width|height)\s+\d+", " "), @"\s+", " ").Trim();
+        string rest = Regex.Replace(args, @"\s*-(width|height)\s+\d+", "", RegexOptions.IgnoreCase).Trim();
         return ("-width " + width + " -height " + height + " " + rest).Trim();
     }
 
@@ -464,7 +489,8 @@ static class Game
     {
         Type t = Type.GetTypeFromProgID("WScript.Shell")!;
         object shell = Activator.CreateInstance(t)!;
-        return t.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path })!;
+        try { return t.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path })!; }
+        finally { Marshal.FinalReleaseComObject(shell); }
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = ComLateBinding)]
