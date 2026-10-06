@@ -4,6 +4,8 @@
 
 This repository is the app's source. BF1942-Installer includes it as a git submodule at `installer\BF1942Options`, and its `build.ps1` builds the app into every installer. To build an installer, start from **[BF1942-Installer](https://github.com/AnomalousNicole/BF1942-Installer)**.
 
+![Battlefield 1942 Options: the graphics fix, game fixes, CD key, extras and display options on one page, with Play, Open game folder and the troubleshooting guide on the left](docs/screenshot.png)
+
 ---
 
 ## What it does
