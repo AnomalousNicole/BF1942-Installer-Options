@@ -182,10 +182,15 @@ static class Game
         if (!File.Exists(G(gameRel))) Copy(libRel, gameRel);
     }
 
+    // A graphics fix: its DLLs, and its config file only when the game folder has none (it keeps the player's)
     static void CopyFolder(string libFolder)
     {
         foreach (string f in Directory.GetFiles(L(libFolder)))
-            Copy(Path.Combine(libFolder, Path.GetFileName(f)), Path.GetFileName(f));
+        {
+            string name = Path.GetFileName(f), lib = Path.Combine(libFolder, name);
+            if (name.EndsWith(".conf", StringComparison.OrdinalIgnoreCase)) CopyIfMissing(lib, name);
+            else Copy(lib, name);
+        }
     }
 
     static void Remove(string gameRel)
@@ -322,7 +327,9 @@ static class Game
     {
         if (to.Renderer != from.Renderer && to.Renderer != Renderer.Unknown)
         {
-            foreach (string f in new[] { "d3d8.dll", "d3d9.dll", "dxvk.conf", "dgVoodoo.conf" }) Remove(f);
+            // Only the DLLs go. dxvk.conf and dgVoodoo.conf stay, with the player's own settings, for when that fix
+            // is picked again: only DXVK reads dxvk.conf and only dgVoodoo2 reads dgVoodoo.conf.
+            foreach (string f in new[] { "d3d8.dll", "d3d9.dll" }) Remove(f);
             if (to.Renderer == Renderer.DXVK) CopyFolder(LibDXVK);
             if (to.Renderer == Renderer.DgVoodoo) CopyFolder(LibDgV);
             SetState("Renderer", RendererName(to.Renderer));
