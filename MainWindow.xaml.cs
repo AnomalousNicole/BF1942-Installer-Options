@@ -20,6 +20,7 @@ public sealed partial class MainWindow : Window
     bool closeWhenDone;   // the window was closed while busy, and closes once that is done
     bool checking;        // the graphics card check runs: it picks a renderer when done, so no Apply meanwhile
     const string NotIncluded = "Not included in this installer.";
+    readonly string borderlessText, hiResText, sirenText, compatText;   // the hints, for an extra that is included
 
     [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr hwnd);
     readonly IntPtr hwnd;
@@ -89,8 +90,6 @@ public sealed partial class MainWindow : Window
             pendingFit++;
         }
         else { Art.Visibility = Visibility.Collapsed; ArtText.Visibility = Visibility.Visible; }
-        GameFolder.Text = Game.Dir;
-        ToolTipService.SetToolTip(GameFolder, Game.Dir);
         if (Game.DiscordUrl == "") DiscordButton.Visibility = Visibility.Collapsed;
         else ToolTipService.SetToolTip(DiscordButton, Game.DiscordUrl);
         if (Game.ServerAddress == "") JoinButton.Visibility = Visibility.Collapsed;
@@ -133,18 +132,11 @@ public sealed partial class MainWindow : Window
         Status.SizeChanged += (_, _) => KeepAllInView();
 
         for (int i = 0; i < Game.FontNames.Length; i++)
-            FontSize.Items.Add(new ComboBoxItem
-            {
-                Content = Game.FontNames[i] + (i == 2 ? " (default)" : "") + " - for " + Game.FontHints[i],
-                IsEnabled = Game.FontAvailable(i),
-            });
-        Guide.Visibility = File.Exists(Game.TroubleshootingPdf) ? Visibility.Visible : Visibility.Collapsed;
-        CheckGraphics.IsEnabled = Game.VulkanCheckAvailable;
-        if (!Game.BorderlessAvailable)
-            BorderlessHint.Text = Environment.Is64BitOperatingSystem ? NotIncluded : "Only available on 64-bit Windows.";
-        if (!Game.HiResAvailable) HiResHint.Text = NotIncluded;
-        if (!Game.SirenAvailable) SirenHint.Text = NotIncluded;
-        if (!Game.CompatAvailable) CompatHint.Text = NotIncluded;
+            FontSize.Items.Add(new ComboBoxItem { Content = Game.FontNames[i] + (i == 2 ? " (default)" : "") + " - for " + Game.FontHints[i] });
+        borderlessText = BorderlessHint.Text;
+        hiResText = HiResHint.Text;
+        sirenText = SirenHint.Text;
+        compatText = CompatHint.Text;
         if (Game.ServerShortcut != "")
             SkipHint.Text += $" The \"{Game.ServerShortcut}\" shortcut always skips them.";
         if (!Game.SerialAllowed)
@@ -165,17 +157,80 @@ public sealed partial class MainWindow : Window
 
         Root.Loaded += async (_, _) =>
         {
-            if (!Game.Installed)
-            {
-                Columns.Opacity = 0.5;
-                UpdateControls();
-                Show(InfoBarSeverity.Error, Game.LibraryFound
-                    ? "BF1942.exe is missing from the game folder. If an antivirus removed it, restore it there, or run the installer again."
-                    : "BF1942 Options must stay in the folder that its installer created inside the Battlefield 1942 folder.");
-            }
-            else await ReloadAsync();
+            await OpenFolderAsync();
             FitWhenReady();
         };
+    }
+
+    // Shows what is in the game folder, or why it can't
+    async Task OpenFolderAsync()
+    {
+        GameFolder.Text = Game.Dir;
+        ToolTipService.SetToolTip(GameFolder, Game.Dir);
+        for (int i = 0; i < Game.FontNames.Length; i++)
+            ((ComboBoxItem)FontSize.Items[i]).IsEnabled = Game.FontAvailable(i);
+        Guide.Visibility = File.Exists(Game.TroubleshootingPdf) ? Visibility.Visible : Visibility.Collapsed;
+        CheckGraphics.IsEnabled = Game.VulkanCheckAvailable;
+        BorderlessHint.Text = Game.BorderlessAvailable ? borderlessText
+            : Environment.Is64BitOperatingSystem ? NotIncluded : "Only available on 64-bit Windows.";
+        HiResHint.Text = Game.HiResAvailable ? hiResText : NotIncluded;
+        SirenHint.Text = Game.SirenAvailable ? sirenText : NotIncluded;
+        CompatHint.Text = Game.CompatAvailable ? compatText : NotIncluded;
+        Columns.Opacity = Game.Installed ? 1 : 0.5;
+        if (Game.Installed)
+        {
+            await ReloadAsync();
+            return;
+        }
+        current = null;
+        UpdateControls();
+        Show(InfoBarSeverity.Error, !Game.GameFound
+            ? "BF1942.exe is missing from " + Game.Dir + ". If an antivirus removed it, restore it there, or click Browse and pick the Battlefield 1942 folder."
+            : "The fixes this installer keeps in the game folder are not in " + Game.Dir + ". Click Browse and pick the folder you installed Battlefield 1942 in with this installer, or run the installer again.");
+    }
+
+    async void Browse_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || reading || checking) return;
+        // A switch changed but not applied would be lost: it belongs to this game folder
+        if (current != null && !Wanted().SameAs(current))
+        {
+            Show(InfoBarSeverity.Warning, "Click Apply first, or set the options back, before you pick another game folder.");
+            return;
+        }
+        string? dir;
+        try
+        {
+            string parent = Path.GetDirectoryName(Game.Dir) ?? Game.Dir;
+            dir = FolderPicker.Pick(hwnd, "Pick the Battlefield 1942 folder (the one with BF1942.exe in it)", parent);
+        }
+        catch (Exception ex)
+        {
+            Show(InfoBarSeverity.Error, "The folder picker could not open: " + ex.Message);
+            return;
+        }
+        if (dir == null) return;
+        if (!Game.HasGame(dir))
+        {
+            Show(InfoBarSeverity.Warning, "BF1942.exe is not in " + dir + ". Pick the Battlefield 1942 folder: the one with BF1942.exe in it.");
+            return;
+        }
+        if (string.Equals(Game.FullPath(dir), Game.Dir, StringComparison.OrdinalIgnoreCase))
+        {
+            if (Game.Installed) return;
+        }
+        else if (!App.ClaimFolder(dir))
+        {
+            Show(InfoBarSeverity.Warning, "Battlefield 1942 Options is already open for " + dir + ".");
+            return;
+        }
+        Game.UseFolder(dir);
+        try { Game.SaveFolder(); }
+        catch (Exception ex) { Game.Log("Saving the game folder failed: " + ex.Message); }
+        Game.Log("Game folder: " + Game.Dir);
+        Status.IsOpen = false;
+        await OpenFolderAsync();
+        if (current != null) Show(InfoBarSeverity.Success, "Showing the options for " + Game.Dir + ".");
     }
 
     IntPtr WindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data)
@@ -411,6 +466,7 @@ public sealed partial class MainWindow : Window
     {
         Options.IsEnabled = Game.Installed && current != null && !reading && !busy;
         PlayButton.IsEnabled = JoinButton.IsEnabled = Game.Installed && !busy;
+        BrowseButton.IsEnabled = !busy && !reading;
         UpdateApply();
     }
 

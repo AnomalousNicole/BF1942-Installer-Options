@@ -24,11 +24,12 @@ One window, in a Battlefield 1942 theme, with every option on one page:
 | Resolution | **Use my screen's resolution** sets every `Video*.con` to the main screen |
 | CD key | **Generate a CD key**, only when no valid key is registered |
 
-The left side has **Play**, **Join** (when the installer has a server shortcut), **Join our Discord** (when it has a Discord invite), **Open game folder** and the **Troubleshooting guide**. With Borderless1942 on, **Play** and **Join** start the game through it, like its desktop shortcut. The app runs as administrator, but it starts the game, folders and links as the signed-in user.
+The left side has **Play**, **Join** (when the installer has a server shortcut), **Join our Discord** (when it has a Discord invite), **Open game folder** and the **Troubleshooting guide**, and the game folder with **Browse...** to pick another one. With Borderless1942 on, **Play** and **Join** start the game through it, like its desktop shortcut. The app runs as administrator, but it starts the game, folders and links as the signed-in user.
 
 ## How it works
 
-- **The library.** Setup keeps a copy of every fix the app can switch, plus the game's original files that the extras replace, in `{app}\Options`, and installs the app in `{app}\Options\App`. The app finds the game folder two levels above itself.
+- **The library.** Setup keeps a copy of every fix the app can switch, plus the game's original files that the extras replace, in `{app}\Options`, and installs the app in `{app}\Options\App`.
+- **The game folder.** Below the folder's path on the left, **Browse...** picks another Battlefield 1942 folder. It must have `BF1942.exe` in it, and the app then uses the library in its `Options` folder. A folder with a library is remembered in the state key (`GameFolder`) and opens the next time. Without a remembered folder, the app opens the folder it is installed in, or else the one in the game's registry entry (`GAMEDIR`, which Setup writes too), whichever has `BF1942.exe`. So a copy of the app downloaded on its own, from this repository's Releases, finds the game, or can be pointed at it.
 - **What is on** is read from the game folder every time: a file counts as on when it is identical (SHA-256) to its copy in the library. Extras that the installer was built without have no copy, and show as *Not included in this installer* (Borderless1942 on 32-bit Windows as *Only available on 64-bit Windows*); a font size without a copy is greyed out in the list.
 - **`options.json`** next to the exe tells the app what the installer was built with. BF1942-Installer's `build.ps1` writes it from `config.json`:
 

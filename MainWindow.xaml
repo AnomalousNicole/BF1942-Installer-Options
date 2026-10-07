@@ -31,7 +31,7 @@
         <!-- Switches and icon buttons carry AutomationProperties.Name, so screen readers say what they are -->
         <!-- Left side: the installer's box art (or the game's name when the build has none), then buttons to
              play, join the server and the Discord (when the build has them), open the game folder and the guide,
-             and the game folder. The art takes the space that is left, so in a short window it shrinks and the
+             and the game folder, with Browse to pick another one. The art takes the space that is left, so in a short window it shrinks and the
              buttons always stay in view. -->
         <Grid x:Name="Sidebar" Grid.Row="1" Background="{StaticResource ArtBlackBrush}">
             <Grid.RowDefinitions>
@@ -84,6 +84,13 @@
             <StackPanel x:Name="SideFolder" Grid.Row="2" Padding="14,12,14,18" Spacing="2">
                 <TextBlock Text="GAME FOLDER" Style="{StaticResource CardTitle}" FontSize="11" Margin="0" />
                 <TextBlock x:Name="GameFolder" Style="{StaticResource Hint}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                <Button x:Name="BrowseButton" AutomationProperties.Name="Browse for the game folder" Margin="0,6,0,0" Click="Browse_Click"
+                        ToolTipService.ToolTip="Pick another Battlefield 1942 folder (the one with BF1942.exe in it)">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8DA;" FontSize="13" />
+                        <TextBlock Text="Browse..." />
+                    </StackPanel>
+                </Button>
             </StackPanel>
         </Grid>
 

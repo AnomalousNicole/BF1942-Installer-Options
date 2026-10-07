@@ -29,9 +29,7 @@ public partial class App : Application
     {
         // One window per game folder: starting the app again (a double-click, or the desktop and the Start menu
         // shortcut both used) brings the open window to the front, instead of a second copy changing the same files
-        string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Game.Dir.ToUpperInvariant())))[..16];
-        instance = new Mutex(true, @"Local\BF1942Options-" + key, out bool first);
-        if (!first)
+        if (!ClaimFolder(Game.Dir))
         {
             // The window of this install's app: another install's app can be open too, with the same title
             IntPtr open = IntPtr.Zero;
@@ -50,5 +48,22 @@ public partial class App : Application
         }
         window = new MainWindow();
         window.Activate();
+    }
+
+    // Whether no other window has this game folder open; if so, this window has it from now on (and no longer the
+    // one it had)
+    public static bool ClaimFolder(string dir)
+    {
+        string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Game.FullPath(dir).ToUpperInvariant())))[..16];
+        var claimed = new Mutex(true, @"Local\BF1942Options-" + key, out bool first);
+        if (!first)
+        {
+            claimed.Dispose();
+            return false;
+        }
+        instance?.ReleaseMutex();
+        instance?.Dispose();
+        instance = claimed;
+        return true;
     }
 }

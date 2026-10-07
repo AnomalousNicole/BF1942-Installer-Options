@@ -80,6 +80,7 @@ static class Game
             }
         }
         catch { }
+        UseFolder(StartFolder());
     }
 
     public static readonly string[] FontNames = { "Original", "1x", "2x", "3x", "3.5x", "4x" };
@@ -102,13 +103,57 @@ static class Game
     const string LibSiren  = "Battle of Britain disable siren";
     const string LibOrig   = "Originals";
 
-    // The app runs from a subfolder of the library, which is a subfolder of the game folder
-    public static readonly string Lib = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
-    public static readonly string Dir = Path.GetFullPath(Path.Combine(Lib, ".."));
+    // Setup keeps the library in Options in the game folder, and installs the app in Options\App. The player can
+    // also pick another game folder (Browse, as the app can be downloaded on its own); the library is then the one
+    // in that folder.
+    const string LibFolder = "Options";
+    public static string Dir { get; private set; } = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\.."));
+    public static string Lib { get; private set; } = "";
+    const string SavedFolder = "GameFolder";   // in the state key: the folder the player last picked
 
-    public static bool LibraryFound => Directory.Exists(L(LibBF42pp));
-    public static bool GameFound => File.Exists(G("BF1942.exe"));
+    public static bool LibraryFound => IsLibrary(Lib);
+    public static bool GameFound => HasGame(Dir);
     public static bool Installed => GameFound && LibraryFound;
+
+    public static bool HasGame(string dir) => File.Exists(Path.Combine(dir, "BF1942.exe"));
+    static bool IsLibrary(string folder) => Directory.Exists(Path.Combine(folder, LibBF42pp));
+    public static string FullPath(string dir) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir));
+
+    // The folder the window opens with: the one the player last picked, the one the app is installed in, or the
+    // one the game's registry entry names (Setup writes it too) - the first that has BF1942.exe
+    static string StartFolder()
+    {
+        string own = Dir;
+        foreach (Func<string> dir in new Func<string>[] { () => State(SavedFolder), () => own, EaGameDir })
+        {
+            try
+            {
+                string d = dir();
+                if (d != "" && HasGame(d)) return d;
+            }
+            catch { }
+        }
+        return own;
+    }
+
+    static string EaGameDir()
+    {
+        using RegistryKey? k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Electronic Arts\EA GAMES\Battlefield 1942");
+        return k?.GetValue("GAMEDIR") as string ?? "";
+    }
+
+    public static void UseFolder(string dir)
+    {
+        Dir = FullPath(dir);
+        Lib = Path.Combine(Dir, LibFolder);
+    }
+
+    // Remembered for the next start, only for a folder this installer's library is in: the uninstaller removes the
+    // state key, and with it this value
+    public static void SaveFolder()
+    {
+        if (LibraryFound) SetState(SavedFolder, Dir);
+    }
 
     static string G(string rel) => Path.Combine(Dir, rel);
     static string L(string rel) => Path.Combine(Lib, rel);
