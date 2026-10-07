@@ -19,6 +19,7 @@ public sealed partial class MainWindow : Window
     bool busy;            // the game folder (or the CD key) is being changed: nothing else may start meanwhile
     bool closeWhenDone;   // the window was closed while busy, and closes once that is done
     bool checking;        // the graphics card check runs: it picks a renderer when done, so no Apply meanwhile
+    bool picking;         // the folder picker is open (it disables the window; the window stays open until it closes)
     const string NotIncluded = "Not included in this installer.";
     readonly string borderlessText, hiResText, sirenText, compatText;   // the hints, for an extra that is included
 
@@ -123,6 +124,7 @@ public sealed partial class MainWindow : Window
         }
         AppWindow.Closing += (_, args) =>
         {
+            if (picking) args.Cancel = true;
             if (!busy) return;
             args.Cancel = true;
             CloseWhenIdle();
@@ -191,7 +193,7 @@ public sealed partial class MainWindow : Window
 
     async void Browse_Click(object sender, RoutedEventArgs e)
     {
-        if (busy || reading || checking) return;
+        if (busy || reading || checking || picking) return;
         // A switch changed but not applied would be lost: it belongs to this game folder
         if (current != null && !Wanted().SameAs(current))
         {
@@ -199,15 +201,22 @@ public sealed partial class MainWindow : Window
             return;
         }
         string? dir;
+        picking = true;
+        UpdateControls();
         try
         {
             string parent = Path.GetDirectoryName(Game.Dir) ?? Game.Dir;
-            dir = FolderPicker.Pick(hwnd, "Pick the Battlefield 1942 folder (the one with BF1942.exe in it)", parent);
+            dir = await FolderPicker.PickAsync(hwnd, "Pick the Battlefield 1942 folder (the one with BF1942.exe in it)", parent);
         }
         catch (Exception ex)
         {
             Show(InfoBarSeverity.Error, "The folder picker could not open: " + ex.Message);
             return;
+        }
+        finally
+        {
+            picking = false;
+            UpdateControls();
         }
         if (dir == null) return;
         if (!Game.HasGame(dir))
@@ -466,7 +475,7 @@ public sealed partial class MainWindow : Window
     {
         Options.IsEnabled = Game.Installed && current != null && !reading && !busy;
         PlayButton.IsEnabled = JoinButton.IsEnabled = Game.Installed && !busy;
-        BrowseButton.IsEnabled = !busy && !reading;
+        BrowseButton.IsEnabled = !busy && !reading && !picking;
         UpdateApply();
     }
 

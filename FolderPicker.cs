@@ -2,6 +2,8 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace BF1942Options;
 
@@ -49,7 +51,23 @@ static class FolderPicker
     const int ERROR_CANCELLED = unchecked((int)0x800704C7);
 
     // The folder picked, or null when the player cancelled. It opens in startIn, when that folder exists.
-    public static string? Pick(IntPtr owner, string title, string startIn)
+    // The picker runs on a thread of its own: the window's thread is an ASTA, which turns away the calls that
+    // UI Automation (screen readers) makes into a modal picker it shows. The owner window is disabled meanwhile.
+    public static Task<string?> PickAsync(IntPtr owner, string title, string startIn)
+    {
+        var done = new TaskCompletionSource<string?>();
+        var thread = new Thread(() =>
+        {
+            try { done.SetResult(Pick(owner, title, startIn)); }
+            catch (Exception ex) { done.SetException(ex); }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.IsBackground = true;
+        thread.Start();
+        return done.Task;
+    }
+
+    static string? Pick(IntPtr owner, string title, string startIn)
     {
         var dialog = (IFileDialog)new FileOpenDialog();
         try
