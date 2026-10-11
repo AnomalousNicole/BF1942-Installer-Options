@@ -109,24 +109,21 @@
                        Text="Turn the fixes and extras on or off. Nothing changes until you click Apply. Close the game first." />
         </StackPanel>
 
-        <!-- Two columns that end on the same line. The cards are shared out so both columns hold about the same
+        <!-- Columns that end on the same line. The cards are shared out so the columns hold about the same
              amount, and the last card in each column stretches the little that is left, with its button at the
-             bottom. The columns follow the window's width; in a narrow window the right column moves under the
-             left one (MainWindow.xaml.cs), and only this part scrolls, so the title, Apply and Close stay in view. -->
+             bottom. Two columns, or three on a screen too short for two (MainWindow.xaml.cs moves the cards);
+             in a narrow window they become one, and only this part scrolls, so the title, Apply and Close stay
+             in view. -->
         <ScrollViewer x:Name="Scroller" Grid.Row="1" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
             <!-- Turned off as a whole (MainWindow.xaml.cs) while the game folder is read or changed; a panel can't be -->
             <ContentControl x:Name="Options" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalAlignment="Top">
-                <Grid x:Name="Columns" ColumnSpacing="16" RowSpacing="0" VerticalAlignment="Top">
+                <Grid x:Name="Columns" ColumnSpacing="16" VerticalAlignment="Top">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition />
                         <ColumnDefinition />
                     </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
 
-                    <!-- Left: graphics fix, game fixes, CD key -->
+                    <!-- Two columns: graphics fix, game fixes, CD key | player name, extras, display -->
                     <Grid x:Name="LeftColumn" RowSpacing="16">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -157,7 +154,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Row="1" Style="{StaticResource Card}">
+                        <Border x:Name="FixesCard" Grid.Row="1" Style="{StaticResource Card}">
                             <StackPanel Spacing="10">
                                 <TextBlock Text="GAME FIXES" Style="{StaticResource CardTitle}" />
                                 <Grid ColumnSpacing="16">
@@ -197,7 +194,6 @@
                         </Border>
                     </Grid>
 
-                    <!-- Right: player name, extras, display -->
                     <Grid x:Name="RightColumn" Grid.Column="1" RowSpacing="16">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -206,7 +202,7 @@
                         </Grid.RowDefinitions>
 
                         <!-- Changed at once by its button, like the CD key and the resolution, not by Apply -->
-                        <Border Style="{StaticResource Card}">
+                        <Border x:Name="PlayerCard" Style="{StaticResource Card}">
                             <StackPanel Spacing="6">
                                 <TextBlock Text="PLAYER NAME" Style="{StaticResource CardTitle}" />
                                 <Grid ColumnSpacing="12">
@@ -219,7 +215,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Row="1" Style="{StaticResource Card}">
+                        <Border x:Name="ExtrasCard" Grid.Row="1" Style="{StaticResource Card}">
                             <StackPanel Spacing="10">
                                 <TextBlock Text="EXTRAS" Style="{StaticResource CardTitle}" />
                                 <Grid ColumnSpacing="16">
@@ -241,7 +237,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Row="2" Style="{StaticResource Card}">
+                        <Border x:Name="DisplayCard" Grid.Row="2" Style="{StaticResource Card}">
                             <Grid RowSpacing="10">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
@@ -283,6 +279,9 @@
                             </Grid>
                         </Border>
                     </Grid>
+
+                    <!-- Three columns only (MainWindow.xaml.cs) -->
+                    <Grid x:Name="ThirdColumn" Grid.Column="2" RowSpacing="16" Visibility="Collapsed" />
                 </Grid>
             </ContentControl>
         </ScrollViewer>

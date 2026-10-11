@@ -27,12 +27,15 @@ public sealed partial class MainWindow : Window
     readonly IntPtr hwnd;
     double Scale => GetDpiForWindow(hwnd) / 96.0;
 
-    // Width of the options area the window opens with, and the width below which its two columns become one
-    // (only on a screen too small for the whole page), in effective pixels
-    const double StartColumnsWidth = 920;
+    // Width of the options area the window opens with in two and in three columns, and the widths below which
+    // three columns become two and two become one (when the window is made narrower), in effective pixels
+    const double TwoColumnsWidth = 920;
+    const double ThreeColumnsWidth = 1140;
+    const double ThreeColumnsBelow = 1040;
     const double OneColumnBelow = 720;
     const double ArtMinHeight = 300;
-    bool oneColumn;
+    int columns = 2;      // how many the cards are in now
+    int fitColumns = 2;   // how many the window was fitted with: 3 on a screen too short for the page in two
     int pendingFit = 1;   // the page's texts (after ReloadAsync), plus the art when there is one
     bool sizingOrMoving;  // the user is dragging the window or its edge (WM_ENTERSIZEMOVE to WM_EXITSIZEMOVE)
     IntPtr dragScreen;    // the screen that drag started on
@@ -141,13 +144,8 @@ public sealed partial class MainWindow : Window
         compatText = CompatHint.Text;
         if (Game.ServerShortcut != "")
             SkipHint.Text += $" The \"{Game.ServerShortcut}\" shortcut always skips them.";
-        if (!Game.SerialAllowed)
-        {
-            // No CD key card: the game fixes card is the last one in the left column and takes up the rest
-            SerialCard.Visibility = Visibility.Collapsed;
-            LeftColumn.RowDefinitions[1].Height = new GridLength(1, GridUnitType.Star);
-            LeftColumn.RowDefinitions[2].Height = new GridLength(0);
-        }
+        // No CD key card: SetColumns leaves it out, so the card above it takes up the rest of its column
+        if (!Game.SerialAllowed) SerialCard.Visibility = Visibility.Collapsed;
         DxvkTitle.Text = ("DXVK " + Game.Version("VerDXVK")).Trim();
         DgVoodooTitle.Text = ("dgVoodoo2 " + Game.Version("VerDgVoodoo2")).Trim();
         BF42ppTitle.Text = ("BF42++ " + Game.Version("VerBF42PP")).Trim();
@@ -282,22 +280,33 @@ public sealed partial class MainWindow : Window
         if (--pendingFit == 0) FitToContent();
     }
 
-    // Sizes the window so the whole page shows without scrolling, as long as the screen is big enough
+    // Sizes the window so the whole page shows without scrolling, as long as the screen is big enough: in two
+    // columns, or in three (a wider, shorter page) when two are too tall for the screen and three fit its width
     void FitToContent()
     {
         double scale = Scale;
-        double width = Page.ColumnDefinitions[0].Width.Value + StartColumnsWidth + Root.Padding.Left + Root.Padding.Right;
-        SetOneColumn(false);
-        // The options decide the height. The art on the left shrinks to what is left beside them, but always
-        // keeps at least ArtMinHeight, so the buttons below it never push the window taller.
+        RectInt32 work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         double side = Page.ColumnDefinitions[0].Width.Value;
-        Root.Measure(new Windows.Foundation.Size(width - side, double.PositiveInfinity));
         SideButtons.Measure(new Windows.Foundation.Size(side, double.PositiveInfinity));
         SideFolder.Measure(new Windows.Foundation.Size(side, double.PositiveInfinity));
         double sidebar = ArtMinHeight + SideButtons.DesiredSize.Height + SideFolder.DesiredSize.Height;
-        double height = Page.RowDefinitions[0].Height.Value + Math.Max(Root.DesiredSize.Height, sidebar);
+        double width = 0, height = 0;
+        foreach (int n in new[] { 2, 3 })
+        {
+            double w = side + (n == 2 ? TwoColumnsWidth : ThreeColumnsWidth) + Root.Padding.Left + Root.Padding.Right;
+            if (n == 3 && w * scale > work.Width - 16) break;
+            SetColumns(n);
+            // The options decide the height. The art on the left shrinks to what is left beside them, but always
+            // keeps at least ArtMinHeight, so the buttons below it never push the window taller.
+            Root.Measure(new Windows.Foundation.Size(w - side, double.PositiveInfinity));
+            double h = Page.RowDefinitions[0].Height.Value + Math.Max(Root.DesiredSize.Height, sidebar);
+            if (n == 3 && h >= height) { SetColumns(2); break; }
+            fitColumns = n;
+            width = w;
+            height = h;
+            if (h * scale <= work.Height - 48) break;
+        }
 
-        RectInt32 work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         int cw = Math.Min((int)Math.Ceiling(width * scale), work.Width - 16);
         int ch = Math.Min((int)Math.Ceiling(height * scale), work.Height - 48);
         fitDpi = 0;   // no smallest size while the window is fitted
@@ -341,7 +350,7 @@ public sealed partial class MainWindow : Window
     // are dragging the window or its edge, rather than fighting the drag.
     void KeepAllInView()
     {
-        if (pendingFit > 0 || oneColumn || sizingOrMoving) return;
+        if (pendingFit > 0 || columns == 1 || sizingOrMoving) return;
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
             if (sizingOrMoving) return;
@@ -379,19 +388,49 @@ public sealed partial class MainWindow : Window
         });
     }
 
-    // Two columns, or one when the screen is too small for the page. Extra height in a bigger window stays
-    // below the cards instead of opening up gaps inside them.
-    void ApplyLayout() => SetOneColumn(Scroller.ActualWidth < OneColumnBelow);
-
-    void SetOneColumn(bool one)
+    // The columns the window was fitted with, fewer when it is made narrower. Extra height in a bigger window
+    // stays below the cards instead of opening up gaps inside them.
+    void ApplyLayout()
     {
-        if (one == oneColumn) return;
-        oneColumn = one;
-        Grid.SetColumn(RightColumn, one ? 0 : 1);
-        Grid.SetRow(RightColumn, one ? 1 : 0);
-        Columns.ColumnDefinitions[1].Width = one ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
-        Columns.ColumnSpacing = one ? 0 : 16;
-        Columns.RowSpacing = one ? 16 : 0;
+        if (pendingFit > 0) return;
+        double w = Scroller.ActualWidth;
+        SetColumns(w < OneColumnBelow ? 1 : w < ThreeColumnsBelow ? Math.Min(fitColumns, 2) : fitColumns);
+    }
+
+    // Shares the cards out over the columns, in the order they are read in. A hidden card (the CD key) is left
+    // out, and the last card in each column takes up the rest of it.
+    void SetColumns(int n)
+    {
+        if (n == columns) return;
+        columns = n;
+        Border[][] layout = n switch
+        {
+            1 => new[] { new[] { GraphicsCard, FixesCard, SerialCard, PlayerCard, ExtrasCard, DisplayCard } },
+            2 => new[] { new[] { GraphicsCard, FixesCard, SerialCard }, new[] { PlayerCard, ExtrasCard, DisplayCard } },
+            _ => new[] { new[] { GraphicsCard, FixesCard }, new[] { PlayerCard, SerialCard, ExtrasCard }, new[] { DisplayCard } },
+        };
+        Grid[] grids = { LeftColumn, RightColumn, ThirdColumn };
+        foreach (Grid g in grids)
+        {
+            g.Children.Clear();
+            g.RowDefinitions.Clear();
+        }
+        Columns.ColumnDefinitions.Clear();
+        for (int c = 0; c < grids.Length; c++)
+        {
+            grids[c].Visibility = c < n ? Visibility.Visible : Visibility.Collapsed;
+            if (c >= n) continue;
+            Columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            foreach (Border card in layout[c])
+            {
+                Grid.SetRow(card, grids[c].RowDefinitions.Count);
+                grids[c].RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                grids[c].Children.Add(card);
+            }
+            int last = grids[c].RowDefinitions.Count - 1;
+            while (last > 0 && ((Border)grids[c].Children[last]).Visibility == Visibility.Collapsed) last--;
+            grids[c].RowDefinitions[last].Height = new GridLength(1, GridUnitType.Star);
+        }
     }
 
     void ShowSerial()
