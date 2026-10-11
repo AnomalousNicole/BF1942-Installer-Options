@@ -197,14 +197,29 @@
                         </Border>
                     </Grid>
 
-                    <!-- Right: extras, display -->
+                    <!-- Right: player name, extras, display -->
                     <Grid x:Name="RightColumn" Grid.Column="1" RowSpacing="16">
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
+                        <!-- Changed at once by its button, like the CD key and the resolution, not by Apply -->
                         <Border Style="{StaticResource Card}">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="PLAYER NAME" Style="{StaticResource CardTitle}" />
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBox x:Name="PlayerName" AutomationProperties.Name="Player name" MaxLength="32"
+                                             TextChanged="PlayerName_TextChanged" KeyDown="PlayerName_KeyDown" />
+                                    <Button x:Name="UseName" Grid.Column="1" Content="Use this name" Click="UseName_Click" />
+                                </Grid>
+                                <TextBlock x:Name="PlayerHint" Style="{StaticResource Hint}" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Style="{StaticResource Card}">
                             <StackPanel Spacing="10">
                                 <TextBlock Text="EXTRAS" Style="{StaticResource CardTitle}" />
                                 <Grid ColumnSpacing="16">
@@ -226,7 +241,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Row="1" Style="{StaticResource Card}">
+                        <Border Grid.Row="2" Style="{StaticResource Card}">
                             <Grid RowSpacing="10">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />

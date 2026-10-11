@@ -22,6 +22,7 @@ One window, in a Battlefield 1942 theme, with every option on one page:
 | Compatibility Profile | Registers or removes `BF1942.sdb` with `sdbinst` |
 | Skip the intro videos | `+restart 1` on the desktop shortcuts |
 | Resolution | **Use my screen's resolution** sets every `Video*.con` to the main screen |
+| Player name | **Use this name** works like Setup's *Set your player name* in BF1942-Installer: it copies the profile the game starts with to `Settings\Profiles\<name>` (spaces and characters a folder name can't have become `_`), sets the name in it and makes it the one the game starts with |
 | CD key | **Generate a CD key**, only when no valid key is registered |
 
 The left side has **Play**, **Join** (when the installer has a server shortcut), **Join our Discord** (when it has a Discord invite), **Open game folder** and the **Troubleshooting guide**, and the game folder with **Browse...** to pick another one. With Borderless1942 on, **Play** and **Join** start the game through it, like its desktop shortcut. The app runs as administrator, but it starts the game, folders and links as the signed-in user.

@@ -449,8 +449,60 @@ public sealed partial class MainWindow : Window
         SkipIntro.IsOn = current.SkipIntro;
         NoSiren.IsOn = current.NoSiren;
         Compat.IsOn = current.Compat;
+        PlayerName.Text = current.PlayerName;
         loading = false;
+        ShowPlayer();
         UpdateApply();
+    }
+
+    // What "Use this name" would do with the name typed, or why it can't
+    void ShowPlayer()
+    {
+        if (current == null) return;
+        string name = PlayerName.Text.Trim(), profile = Game.ProfileFolderName(name);
+        string? error = Game.PlayerNameError(name);
+        bool same = name == current.PlayerName && profile == current.Profile;
+        UseName.IsEnabled = error == null && !same;
+        PlayerHint.Text = same || name == "" && current.PlayerName == ""
+            ? "The name other players see. The game starts with the profile " + current.Profile + "."
+            : error ?? (Game.ProfileExists(profile)
+                ? "Sets this name in the profile " + profile + ", and the game starts with that profile."
+                : "Creates the profile " + profile + " (a copy of " + current.Profile + ") with this name, and the game starts with it.");
+    }
+
+    void PlayerName_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!loading) ShowPlayer();
+    }
+
+    void PlayerName_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Enter) return;
+        e.Handled = true;
+        if (UseName.IsEnabled) UseName_Click(sender, e);
+    }
+
+    async void UseName_Click(object sender, RoutedEventArgs e)
+    {
+        if (current == null || busy || !GameClosed(thisFolderOnly: true)) return;
+        string name = PlayerName.Text.Trim();
+        SetBusy(true);
+        try
+        {
+            string profile = await Task.Run(() => Game.SetPlayerName(name));
+            current.PlayerName = name;
+            current.Profile = profile;
+            PlayerName.Text = name;
+            Show(InfoBarSeverity.Success, "Done. The game starts with the profile " + profile + ", with the name " + name + ".");
+        }
+        catch (Exception ex)
+        {
+            Game.Log("Player name failed: " + ex);
+            closeWhenDone = false;
+            Show(InfoBarSeverity.Error, "The player name could not be set: " + ex.Message);
+        }
+        ShowPlayer();
+        SetBusy(false);
     }
 
     Settings Wanted()

@@ -34,6 +34,9 @@ sealed class Settings
     public Renderer Renderer;
     public bool BF42pp, Audio, HiResUI, NoSiren, Borderless, Compat, SkipIntro;
     public int Font;   // index into Game.FontNames; -1 = a Font.rfa that Setup did not install
+    // The profile the game starts with and its player name. Not switched by Apply: "Use this name" changes them
+    // at once, so SameAs leaves them out.
+    public string Profile = "", PlayerName = "";
 
     public Settings Clone() => (Settings)MemberwiseClone();
 
@@ -309,6 +312,8 @@ static class Game
         s.Borderless = File.Exists(G("Borderless1942.exe"));
         s.Compat = File.Exists(G("BF1942.sdb"));
         s.SkipIntro = ReadSkipIntro();
+        s.Profile = ActiveProfile();
+        s.PlayerName = ConValue(G(Path.Combine(SettingsDir, "Profiles", s.Profile, "GeneralOptions.con")), "game.setPlayerName");
         return s;
     }
 
@@ -601,6 +606,110 @@ static class Game
         if (!File.Exists(path)) return;
         File.Delete(path);
         Log("Shortcut removed: " + path);
+    }
+
+    // ---- Player name (the same as Setup's "Set your player name") ----
+    // The name goes in a copy of the profile the game starts with, in Settings\Profiles\<name>, and the game is
+    // switched to it. The game names a profile after its folder and runs its files with "run Profiles/<name>/...",
+    // without quotes, so the folder name has no spaces or characters Windows doesn't allow.
+
+    public const int MaxPlayerName = 32;
+    const string SettingsDir = @"Mods\bf1942\Settings";
+
+    // The value after Command on its first line in the file, without quotes ("" if there is none)
+    static string ConValue(string path, string command)
+    {
+        if (!File.Exists(path)) return "";
+        foreach (string line in File.ReadAllLines(path, Encoding.Latin1))
+        {
+            string s = line.Trim();
+            if (s.StartsWith(command + " ", StringComparison.OrdinalIgnoreCase))
+                return s[(command.Length + 1)..].Trim().Replace("\"", "");
+        }
+        return "";
+    }
+
+    // The profile the game starts with (Settings\Profile.con), or Custom, the one the game folder comes with
+    static string ActiveProfile()
+    {
+        string p = ConValue(G(SettingsDir + @"\Profile.con"), "game.setProfile");
+        return p == "" || !ProfileExists(p) ? "Custom" : p;
+    }
+
+    // The profile folder for a player name, e.g. "[MG] Nicole" -> "[MG]_Nicole"
+    public static string ProfileFolderName(string name)
+    {
+        var s = new StringBuilder(name.Trim());
+        for (int i = 0; i < s.Length; i++)
+            if (" \\/:*?\"<>|".Contains(s[i])) s[i] = '_';
+        // Windows drops a trailing dot, and doesn't allow device names
+        if (s.Length > 0 && s[^1] == '.') s[^1] = '_';
+        string folder = s.ToString();
+        return Regex.IsMatch(folder, "^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", RegexOptions.IgnoreCase) ? folder + "_" : folder;
+    }
+
+    public static bool ProfileExists(string profile) => Directory.Exists(G(Path.Combine(SettingsDir, "Profiles", profile)));
+
+    // null when the name can be used
+    public static string? PlayerNameError(string name)
+    {
+        if (name == "") return "Type the player name you want to use in the game.";
+        if (name.Length > MaxPlayerName) return $"The player name can have up to {MaxPlayerName} characters.";
+        if (name.Contains('"')) return "The player name can't contain a double quote (\").";
+        foreach (char c in name)
+            if (c < ' ' || c > '~')
+                return "The player name can only use English letters, numbers, spaces and the symbols on the keyboard " +
+                       "(the game's settings files don't keep other characters).";
+        return null;
+    }
+
+    // Copies the profile the game starts with to Profiles\<name> (a profile with that name that is already there is
+    // kept as it is), sets the player name in it and makes it the one the game starts with. Returns the profile.
+    public static string SetPlayerName(string name)
+    {
+        name = name.Trim();
+        if (PlayerNameError(name) is { } error) throw new Exception(error);
+        string settings = G(SettingsDir), oldProfile = ActiveProfile(), newProfile = ProfileFolderName(name);
+        string newDir = Path.Combine(settings, "Profiles", newProfile);
+        if (!Directory.Exists(newDir))
+        {
+            Log("Creating the profile " + newProfile + " from " + oldProfile);
+            CopyDir(Path.Combine(settings, "Profiles", oldProfile), newDir);
+        }
+        string options = Path.Combine(newDir, "GeneralOptions.con");
+        string line = "game.setPlayerName \"" + name + "\"";
+        if (ConValue(options, "game.setPlayerName") != "") SetConLine(options, "game.setPlayerName", line);
+        else File.AppendAllText(options, "\r\n" + line + "\r\n", Encoding.Latin1);
+        if (!string.Equals(oldProfile, newProfile, StringComparison.Ordinal))
+        {
+            SwitchProfileInDir(settings, oldProfile, newProfile);
+            SwitchProfileInDir(Path.Combine(settings, "Default"), oldProfile, newProfile);
+        }
+        Log("Player name " + name + " set in the profile " + newProfile + ", which the game now starts with");
+        return newProfile;
+    }
+
+    static void CopyDir(string source, string dest)
+    {
+        Directory.CreateDirectory(dest);
+        if (!Directory.Exists(source)) return;
+        foreach (string f in Directory.GetFiles(source)) File.Copy(f, Path.Combine(dest, Path.GetFileName(f)), false);
+        foreach (string d in Directory.GetDirectories(source)) CopyDir(d, Path.Combine(dest, Path.GetFileName(d)));
+    }
+
+    // Points the .con files in a folder that run a profile's files (Profile.con, Video.con, ...) at another profile
+    static void SwitchProfileInDir(string dir, string oldProfile, string newProfile)
+    {
+        if (!Directory.Exists(dir)) return;
+        foreach (string f in Directory.GetFiles(dir, "*.con"))
+        {
+            string before = File.ReadAllText(f, Encoding.Latin1);
+            string s = Regex.Replace(before, Regex.Escape("Profiles/" + oldProfile + "/"), ("Profiles/" + newProfile + "/").Replace("$", "$$"), RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, Regex.Escape("rem ** " + oldProfile + " **"), ("rem ** " + newProfile + " **").Replace("$", "$$"), RegexOptions.IgnoreCase);
+            if (s != before) File.WriteAllText(f, s, Encoding.Latin1);
+        }
+        string profileCon = Path.Combine(dir, "Profile.con");
+        SetConLine(profileCon, "game.setProfile", "game.setProfile \"" + newProfile + "\"");
     }
 
     // ---- CD key (the same rules as Setup: 22 characters, A-Z and 0-9) ----
