@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
 
@@ -22,6 +25,14 @@ public sealed partial class MainWindow : Window
     bool picking;         // the folder picker is open (it disables the window; the window stays open until it closes)
     const string NotIncluded = "Not included in this installer.";
     readonly string borderlessText, hiResText, sirenText, compatText;   // the hints, for an extra that is included
+    bool plusTab;         // the BF42++ settings tab is shown
+    readonly Border[] plusCards;                                         // one per group, in BF42ppSettings.cs's order
+    readonly Dictionary<string, object> plusControls = new();            // each setting's switch, list, text box or ColorList
+    const string FixesSubtitle = "Turn the fixes and extras on or off. Nothing changes until you click Apply. Close the game first.";
+    const string PlusSubtitle = "BF42++'s own settings, in bf42++.ini. Point at a setting's name to see what it does. Nothing changes until you click Apply.";
+    const string PlusOffSubtitle = "BF42++ is off on the Fixes and extras tab: these settings only work while it is on. Nothing changes until you click Apply.";
+    // The title and the tabs next to each other from this width of the options area, in effective pixels
+    const double TabsBesideTitle = 800;
 
     [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr hwnd);
     readonly IntPtr hwnd;
@@ -133,7 +144,7 @@ public sealed partial class MainWindow : Window
             CloseWhenIdle();
         };
         // Also when a message's height settles after it slides in, as the options area gets smaller then
-        Scroller.SizeChanged += (_, _) => { ApplyLayout(); KeepAllInView(); };
+        Scroller.SizeChanged += (_, _) => { ApplyLayout(); EqualizePages(); KeepAllInView(); };
         Status.SizeChanged += (_, _) => KeepAllInView();
 
         for (int i = 0; i < Game.FontNames.Length; i++)
@@ -154,6 +165,10 @@ public sealed partial class MainWindow : Window
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DgVoodoo, DgVoodooTitle.Text);
         var (w, h, r) = Game.PrimaryDisplay();
         ScreenNow.Text = $"Your main screen: {w} x {h} at {r} Hz.";
+        plusCards = MakePlusCards();
+        ShowPage(false);
+        columns = 0;
+        SetColumns(2);
 
         Root.Loaded += async (_, _) =>
         {
@@ -176,7 +191,7 @@ public sealed partial class MainWindow : Window
         HiResHint.Text = Game.HiResAvailable ? hiResText : NotIncluded;
         SirenHint.Text = Game.SirenAvailable ? sirenText : NotIncluded;
         CompatHint.Text = Game.CompatAvailable ? compatText : NotIncluded;
-        Columns.Opacity = Game.Installed ? 1 : 0.5;
+        Columns.Opacity = PlusColumns.Opacity = Game.Installed ? 1 : 0.5;
         if (Game.Installed)
         {
             await ReloadAsync();
@@ -291,15 +306,16 @@ public sealed partial class MainWindow : Window
         SideFolder.Measure(new Windows.Foundation.Size(side, double.PositiveInfinity));
         double sidebar = ArtMinHeight + SideButtons.DesiredSize.Height + SideFolder.DesiredSize.Height;
         double width = 0, height = 0;
+        Columns.MinHeight = PlusColumns.MinHeight = 0;   // the pages' own heights are measured (EqualizePages)
         foreach (int n in new[] { 2, 3 })
         {
             double w = side + (n == 2 ? TwoColumnsWidth : ThreeColumnsWidth) + Root.Padding.Left + Root.Padding.Right;
             if (n == 3 && w * scale > work.Width - 16) break;
             SetColumns(n);
-            // The options decide the height. The art on the left shrinks to what is left beside them, but always
-            // keeps at least ArtMinHeight, so the buttons below it never push the window taller.
-            Root.Measure(new Windows.Foundation.Size(w - side, double.PositiveInfinity));
-            double h = Page.RowDefinitions[0].Height.Value + Math.Max(Root.DesiredSize.Height, sidebar);
+            // The options decide the height, those of the tab that needs more, so switching tabs never scrolls. The
+            // art on the left shrinks to what is left beside them, but always keeps at least ArtMinHeight, so the
+            // buttons below it never push the window taller.
+            double h = Page.RowDefinitions[0].Height.Value + Math.Max(MeasureTabs(w - side), sidebar);
             if (n == 3 && h >= height) { SetColumns(2); break; }
             fitColumns = n;
             width = w;
@@ -322,7 +338,7 @@ public sealed partial class MainWindow : Window
     {
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
-            double spare = Scroller.ViewportHeight - Scroller.ExtentHeight;
+            double spare = Scroller.ViewportHeight - Math.Max(Scroller.ExtentHeight, OtherPageHeight());
             spare = Math.Min(spare, Page.ActualHeight - Page.RowDefinitions[0].Height.Value - sidebar);
             int change = (int)Math.Round(spare * Scale);
             // On a screen too small for the page, the window gets the screen's whole height and the options
@@ -395,6 +411,11 @@ public sealed partial class MainWindow : Window
         if (pendingFit > 0) return;
         double w = Scroller.ActualWidth;
         SetColumns(w < OneColumnBelow ? 1 : w < ThreeColumnsBelow ? Math.Min(fitColumns, 2) : fitColumns);
+        // The tabs go below the title when there isn't room for both on one line
+        bool beside = w >= TabsBesideTitle;
+        Grid.SetRow(Tabs, beside ? 0 : 1);
+        Grid.SetColumn(Tabs, beside ? 1 : 0);
+        Tabs.HorizontalAlignment = beside ? HorizontalAlignment.Right : HorizontalAlignment.Left;
     }
 
     // Shares the cards out over the columns, in the order they are read in. A hidden card (the CD key) is left
@@ -409,18 +430,31 @@ public sealed partial class MainWindow : Window
             2 => new[] { new[] { GraphicsCard, FixesCard, SerialCard }, new[] { PlayerCard, ExtrasCard, DisplayCard } },
             _ => new[] { new[] { GraphicsCard, FixesCard }, new[] { PlayerCard, SerialCard, ExtrasCard }, new[] { DisplayCard } },
         };
-        Grid[] grids = { LeftColumn, RightColumn, ThirdColumn };
+        Arrange(Columns, new[] { LeftColumn, RightColumn, ThirdColumn }, layout);
+        // BF42++'s cards: HUD, chat and console, 3D map markers | controls, performance, graphics and files
+        Border[] p = plusCards;
+        Arrange(PlusColumns, new[] { PlusLeft, PlusRight, PlusThird }, n switch
+        {
+            1 => new[] { p },
+            2 => new[] { p[..3], p[3..] },
+            _ => new[] { new[] { p[0], p[2] }, new[] { p[1], p[3] }, p[4..] },
+        });
+    }
+
+    // Puts each column's cards in its grid, and shows as many grids as there are columns
+    static void Arrange(Grid columnsGrid, Grid[] grids, Border[][] layout)
+    {
         foreach (Grid g in grids)
         {
             g.Children.Clear();
             g.RowDefinitions.Clear();
         }
-        Columns.ColumnDefinitions.Clear();
+        columnsGrid.ColumnDefinitions.Clear();
         for (int c = 0; c < grids.Length; c++)
         {
-            grids[c].Visibility = c < n ? Visibility.Visible : Visibility.Collapsed;
-            if (c >= n) continue;
-            Columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grids[c].Visibility = c < layout.Length ? Visibility.Visible : Visibility.Collapsed;
+            if (c >= layout.Length) continue;
+            columnsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             foreach (Border card in layout[c])
             {
                 Grid.SetRow(card, grids[c].RowDefinitions.Count);
@@ -475,6 +509,9 @@ public sealed partial class MainWindow : Window
         ShowSerial();
         BF42pp.IsOn = current.BF42pp;
         Audio.IsOn = current.Audio;
+        // Not while it is selected: WinUI throws when the selected item is removed (after an Apply with a font that
+        // didn't come from the installer)
+        if (FontSize.Items.Count > Game.FontNames.Length) FontSize.SelectedIndex = -1;
         while (FontSize.Items.Count > Game.FontNames.Length) FontSize.Items.RemoveAt(FontSize.Items.Count - 1);
         if (current.Font < 0)
             FontSize.Items.Add(new ComboBoxItem { Content = Game.FontMissing ? "No font (Font.rfa is missing)" : "Another font (not from the installer)" });
@@ -489,6 +526,17 @@ public sealed partial class MainWindow : Window
         NoSiren.IsOn = current.NoSiren;
         Compat.IsOn = current.Compat;
         PlayerName.Text = current.PlayerName;
+        foreach (PlusSetting s in Game.PlusSettings)
+        {
+            string value = current.Plus[s.Key];
+            switch (plusControls[s.Key])
+            {
+                case ToggleSwitch t: t.IsOn = value == "on"; break;
+                case ComboBox c: c.SelectedIndex = Array.IndexOf(s.Choices!, value); break;
+                case TextBox b: b.Text = s.Show(value); break;
+                case ColorList l: l.Value = value; break;
+            }
+        }
         loading = false;
         ShowPlayer();
         UpdateApply();
@@ -557,14 +605,154 @@ public sealed partial class MainWindow : Window
         w.SkipIntro = SkipIntro.IsOn;
         w.NoSiren = NoSiren.IsOn;
         w.Compat = Compat.IsOn;
+        // A value BF42++ wouldn't take stays as typed: it counts as a change, and PlusProblem keeps Apply off
+        foreach (PlusSetting s in Game.PlusSettings)
+            w.Plus[s.Key] = plusControls[s.Key] switch
+            {
+                ToggleSwitch t => t.IsOn ? "on" : "off",
+                ComboBox c => c.SelectedIndex >= 0 ? s.Choices![c.SelectedIndex] : w.Plus[s.Key],
+                TextBox b => s.Normalize(b.Text) ?? b.Text,
+                ColorList l => l.Value,
+                _ => w.Plus[s.Key],
+            };
         return w;
+    }
+
+    // The first BF42++ setting with a value it wouldn't take, or null
+    PlusSetting? PlusProblem() =>
+        Game.PlusSettings.FirstOrDefault(s => plusControls[s.Key] is TextBox b && s.Normalize(b.Text) == null);
+
+    // A card per group of BF42++ settings: each setting's name, with a tooltip that explains it, and its switch, list
+    // or text box (which has the same tooltip, so it also shows when the keyboard gets there)
+    Border[] MakePlusCards()
+    {
+        var cards = new List<Border>();
+        foreach (var group in Game.PlusSettings.GroupBy(s => s.Card))
+        {
+            var panel = new StackPanel { Spacing = 6 };
+            panel.Children.Add(new TextBlock { Text = group.Key, Style = (Style)Application.Current.Resources["CardTitle"] });
+            foreach (PlusSetting s in group)
+            {
+                var row = new Grid { ColumnSpacing = 12, MinHeight = 32 };
+                row.ColumnDefinitions.Add(new ColumnDefinition());
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var label = new TextBlock { Text = s.Label, Style = (Style)Application.Current.Resources["Setting"], VerticalAlignment = VerticalAlignment.Center };
+                ToolTipService.SetToolTip(label, s.Tooltip);
+                object control;
+                FrameworkElement view;
+                switch (s.Kind)
+                {
+                    case PlusKind.Switch:
+                        var toggle = new ToggleSwitch { Style = (Style)Application.Current.Resources["Switch"] };
+                        toggle.Toggled += (_, _) => UpdateApply();
+                        control = view = toggle;
+                        break;
+                    case PlusKind.Choice:
+                        var list = new ComboBox { MinWidth = 96, VerticalAlignment = VerticalAlignment.Center };
+                        foreach (string c in s.Choices!) list.Items.Add(s.Show(c));
+                        list.SelectionChanged += (_, _) => UpdateApply();
+                        control = view = list;
+                        break;
+                    case PlusKind.Colors:
+                        var colors = new ColorList(s.Label);
+                        colors.Changed += UpdateApply;
+                        control = colors;
+                        view = colors.View;
+                        break;
+                    default:
+                        var box = new TextBox { Width = s.Kind == PlusKind.Color ? 120 : 80, VerticalAlignment = VerticalAlignment.Center };
+                        box.TextChanged += (_, _) =>
+                        {
+                            // Marked while BF42++ wouldn't take it; LostFocus says why
+                            if (s.Normalize(box.Text) == null) box.BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0xE0, 0x5A, 0x4A));
+                            else box.ClearValue(Control.BorderBrushProperty);
+                            UpdateApply();
+                        };
+                        box.LostFocus += (_, _) => { if (s.Normalize(box.Text) == null) Show(InfoBarSeverity.Warning, s.Problem); };
+                        control = view = box;
+                        break;
+                }
+                Grid.SetColumn(view, 1);
+                // The colour list's swatches and + have tooltips of their own
+                if (control is not ColorList) ToolTipService.SetToolTip(view, s.Tooltip);
+                AutomationProperties.SetName(view, s.Label);
+                AutomationProperties.SetHelpText(view, s.Help);
+                AutomationProperties.SetAutomationId(view, "Plus_" + s.Key);
+                plusControls[s.Key] = control;
+                row.Children.Add(label);
+                row.Children.Add(view);
+                panel.Children.Add(row);
+            }
+            cards.Add(new Border { Style = (Style)Application.Current.Resources["Card"], Child = panel });
+        }
+        return cards.ToArray();
+    }
+
+    void Tabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    {
+        if (plusControls.Count == 0) return;   // the first tab is selected while the window is made
+        plusTab = sender.SelectedItem == PlusTab;
+        ShowPage(plusTab);
+        // In case this tab needs more room than the other one at this display scale
+        KeepAllInView();
+    }
+
+    // Shows a tab's page and says what it is for. FitToContent and CorrectHeight also show the other one for a
+    // moment, to measure it.
+    void ShowPage(bool plus)
+    {
+        Options.Visibility = plus ? Visibility.Collapsed : Visibility.Visible;
+        PlusOptions.Visibility = plus ? Visibility.Visible : Visibility.Collapsed;
+        Subtitle.Text = !plus ? FixesSubtitle : BF42pp.IsOn || current == null ? PlusSubtitle : PlusOffSubtitle;
+    }
+
+    // Both tabs' cards as tall as the taller tab needs at this width, so the last card in each column reaches down
+    // to the same line on both tabs. Not in one column, where the page scrolls anyway.
+    void EqualizePages()
+    {
+        if (pendingFit > 0) return;
+        Columns.MinHeight = PlusColumns.MinHeight = 0;
+        if (columns == 1) return;
+        double most = 0;
+        foreach (bool plus in new[] { false, true })
+        {
+            ShowPage(plus);
+            Pages.Measure(new Windows.Foundation.Size(Scroller.ViewportWidth, double.PositiveInfinity));
+            most = Math.Max(most, Pages.DesiredSize.Height);
+        }
+        ShowPage(plusTab);
+        Columns.MinHeight = PlusColumns.MinHeight = most;
+    }
+
+    // The height the page of the tab not shown needs at the options area's width now
+    double OtherPageHeight()
+    {
+        ShowPage(!plusTab);
+        Pages.Measure(new Windows.Foundation.Size(Scroller.ViewportWidth, double.PositiveInfinity));
+        double height = Pages.DesiredSize.Height;
+        ShowPage(plusTab);
+        return height;
+    }
+
+    // The height of the title, the page and the bottom row at this width, for the tab that needs more
+    double MeasureTabs(double width)
+    {
+        double most = 0;
+        foreach (bool plus in new[] { false, true })
+        {
+            ShowPage(plus);
+            Root.Measure(new Windows.Foundation.Size(width, double.PositiveInfinity));
+            most = Math.Max(most, Root.DesiredSize.Height);
+        }
+        ShowPage(plusTab);
+        return most;
     }
 
     // The options only while the game folder's state is known and nothing is being changed (IsEnabled, so the
     // keyboard can't reach them either); Play and Join not while files are being changed
     void UpdateControls()
     {
-        Options.IsEnabled = Game.Installed && current != null && !reading && !busy;
+        Options.IsEnabled = PlusOptions.IsEnabled = Game.Installed && current != null && !reading && !busy;
         PlayButton.IsEnabled = JoinButton.IsEnabled = Game.Installed && !busy;
         BrowseButton.IsEnabled = !busy && !reading && !picking;
         UpdateApply();
@@ -573,7 +761,9 @@ public sealed partial class MainWindow : Window
     void UpdateApply()
     {
         if (loading) return;
-        ApplyButton.IsEnabled = Options.IsEnabled && current != null && !checking && !Wanted().SameAs(current);
+        ApplyButton.IsEnabled = Options.IsEnabled && current != null && !checking && !Wanted().SameAs(current) && PlusProblem() == null;
+        // The BF42++ tab says when BF42++ is switched off
+        if (plusTab) ShowPage(true);
     }
 
     void SetBusy(bool on)
@@ -622,6 +812,11 @@ public sealed partial class MainWindow : Window
     {
         if (current == null || busy || checking) return;
         Settings from = current, wanted = Wanted();
+        if (PlusProblem() is { } problem)
+        {
+            Show(InfoBarSeverity.Warning, problem.Problem);
+            return;
+        }
         if (wanted.SameAs(from) || !GameClosed(thisFolderOnly: true)) return;
 
         SetBusy(true);

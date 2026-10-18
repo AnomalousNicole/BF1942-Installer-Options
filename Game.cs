@@ -12,10 +12,12 @@
 // The app is a 32-bit process, so HKLM\SOFTWARE is the same 32-bit view Setup writes to, and app.manifest
 // asks for administrator rights: the game folder, HKLM and sdbinst (Compatibility Profile) all need them.
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -37,16 +39,25 @@ sealed class Settings
     // The profile the game starts with and its player name. Not switched by Apply: "Use this name" changes them
     // at once, so SameAs leaves them out.
     public string Profile = "", PlayerName = "";
+    // BF42++'s own settings in bf42++.ini, by name (BF42ppSettings.cs)
+    public Dictionary<string, string> Plus = new();
 
-    public Settings Clone() => (Settings)MemberwiseClone();
+    public Settings Clone()
+    {
+        var s = (Settings)MemberwiseClone();
+        s.Plus = new Dictionary<string, string>(Plus);
+        return s;
+    }
+
+    public bool PlusSameAs(Settings o) => Plus.Count == o.Plus.Count && Plus.All(p => o.Plus.TryGetValue(p.Key, out string? v) && v == p.Value);
 
     public bool SameAs(Settings o) =>
         Renderer == o.Renderer && BF42pp == o.BF42pp && Audio == o.Audio && HiResUI == o.HiResUI &&
         NoSiren == o.NoSiren && Borderless == o.Borderless && Compat == o.Compat &&
-        SkipIntro == o.SkipIntro && Font == o.Font;
+        SkipIntro == o.SkipIntro && Font == o.Font && PlusSameAs(o);
 }
 
-static class Game
+static partial class Game
 {
     // ---- options.json ----
 
@@ -314,6 +325,7 @@ static class Game
         s.SkipIntro = ReadSkipIntro();
         s.Profile = ActiveProfile();
         s.PlayerName = ConValue(G(Path.Combine(SettingsDir, "Profiles", s.Profile, "GeneralOptions.con")), "game.setPlayerName");
+        s.Plus = ReadPlus();
         return s;
     }
 
@@ -463,6 +475,9 @@ static class Game
             string bl = DesktopShortcut(BorderlessShortcut);
             if (to.Borderless && OurShortcut(bl)) SetShortcutArguments(bl, WithSkipIntro(ShortcutArguments(bl), to.SkipIntro));
         }
+
+        // Last, as turning BF42++ on above puts bf42++.ini in the game folder when it has none
+        if (!to.PlusSameAs(from)) SavePlus(from.Plus, to.Plus);
     }
 
     // sdbinst.exe registers the compatibility database. From a 32-bit process, Sysnative is the real System32.

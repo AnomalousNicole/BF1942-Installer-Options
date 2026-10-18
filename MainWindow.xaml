@@ -102,12 +102,26 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Spacing="2" Margin="0,0,0,14">
+        <!-- The title, with the tabs to its right (below it in a narrow window: MainWindow.xaml.cs), and what the tab
+             shown is for -->
+        <Grid x:Name="Header" Margin="0,0,0,14" ColumnSpacing="16" RowSpacing="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
             <TextBlock Text="BATTLEFIELD 1942 OPTIONS" FontFamily="{StaticResource StencilFont}" FontWeight="Bold" FontSize="28"
-                       CharacterSpacing="80" Foreground="{StaticResource KhakiBrush}" />
-            <TextBlock Foreground="{StaticResource HintBrush}" TextWrapping="Wrap"
-                       Text="Turn the fixes and extras on or off. Nothing changes until you click Apply. Close the game first." />
-        </StackPanel>
+                       CharacterSpacing="80" Foreground="{StaticResource KhakiBrush}" VerticalAlignment="Center" />
+            <SelectorBar x:Name="Tabs" Grid.Column="1" VerticalAlignment="Center" SelectionChanged="Tabs_SelectionChanged">
+                <SelectorBarItem x:Name="FixesTab" Text="Fixes and extras" IsSelected="True" />
+                <SelectorBarItem x:Name="PlusTab" Text="BF42++ settings" />
+            </SelectorBar>
+            <TextBlock x:Name="Subtitle" Grid.Row="2" Grid.ColumnSpan="2" Foreground="{StaticResource HintBrush}" TextWrapping="Wrap" />
+        </Grid>
 
         <!-- Columns that end on the same line. The cards are shared out so the columns hold about the same
              amount, and the last card in each column stretches the little that is left, with its button at the
@@ -115,6 +129,8 @@
              in a narrow window they become one, and only this part scrolls, so the title, Apply and Close stay
              in view. -->
         <ScrollViewer x:Name="Scroller" Grid.Row="1" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <!-- One page per tab, in the same place; the window is sized for the taller one (MainWindow.xaml.cs) -->
+            <Grid x:Name="Pages">
             <!-- Turned off as a whole (MainWindow.xaml.cs) while the game folder is read or changed; a panel can't be -->
             <ContentControl x:Name="Options" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalAlignment="Top">
                 <Grid x:Name="Columns" ColumnSpacing="16" VerticalAlignment="Top">
@@ -161,7 +177,7 @@
                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                     <StackPanel>
                                         <TextBlock x:Name="BF42ppTitle" Text="BF42++" Style="{StaticResource Setting}" />
-                                        <TextBlock Style="{StaticResource Hint}" Text="By Casqade. Bug fixes and improvements. Its settings are in bf42++.ini." />
+                                        <TextBlock Style="{StaticResource Hint}" Text="By Casqade, with round replays by sila-skandia. Bug fixes and improvements. Its own settings are on the BF42++ settings tab." />
                                     </StackPanel>
                                     <ToggleSwitch x:Name="BF42pp" AutomationProperties.Name="BF42++" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
                                 </Grid>
@@ -284,6 +300,18 @@
                     <Grid x:Name="ThirdColumn" Grid.Column="2" RowSpacing="16" Visibility="Collapsed" />
                 </Grid>
             </ContentControl>
+
+            <!-- BF42++'s own settings in bf42++.ini. MainWindow.xaml.cs makes a card per group from the list in
+                 BF42ppSettings.cs, each setting's label with a tooltip that says what it does, and shares the cards
+                 out over as many columns as the other tab has. -->
+            <ContentControl x:Name="PlusOptions" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalAlignment="Top" Visibility="Collapsed">
+                <Grid x:Name="PlusColumns" ColumnSpacing="16" VerticalAlignment="Top">
+                    <Grid x:Name="PlusLeft" RowSpacing="16" />
+                    <Grid x:Name="PlusRight" Grid.Column="1" RowSpacing="16" />
+                    <Grid x:Name="PlusThird" Grid.Column="2" RowSpacing="16" />
+                </Grid>
+            </ContentControl>
+            </Grid>
         </ScrollViewer>
 
 

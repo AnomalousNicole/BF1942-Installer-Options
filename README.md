@@ -10,7 +10,7 @@ This repository is the app's source. BF1942-Installer includes it as a git submo
 
 ## What it does
 
-One window, in a Battlefield 1942 theme, with every option on one page:
+One window, in a Battlefield 1942 theme, with two tabs. **Fixes and extras** has every option the installer can switch on one page:
 
 | Option | What it changes |
 |---|---|
@@ -25,12 +25,15 @@ One window, in a Battlefield 1942 theme, with every option on one page:
 | Player name | **Use this name** works like Setup's *Set your player name* in BF1942-Installer: it copies the profile the game starts with to `Settings\Profiles\<name>` (spaces and characters a folder name can't have become `_`), sets the name in it and makes it the one the game starts with |
 | CD key | **Generate a CD key**, only when no valid key is registered |
 
+**BF42++ settings** has BF42++'s own settings from `bf42++.ini`, in cards: HUD, chat and console, 3D map markers, controls, performance, and graphics and files (screenshot format, round replays, unpacked game files). Each is a switch, a list or a text box, and the buddy colours are swatches in the order BF42++ hands them out: **+** adds one from a palette (or any colour with **Other colour...**), and clicking a swatch moves it or takes it out. Pointing at a setting's name shows what it does and BF42++'s default. The list, with BF42++'s defaults and ranges, is in `BF42ppSettings.cs`; it follows [sila-skandia/bf42plus](https://github.com/sila-skandia/bf42plus) (Casqade's bf42++ with round replays). Apply writes only the settings that changed, each in place of its own line, so the file's comments, buddy colours and ignore list stay. A colour or number BF42++ wouldn't take keeps Apply off until it is fixed. When the game folder has no `bf42++.ini`, the tab shows the library's copy, which Apply puts there.
+
 The left side has **Play**, **Join** (when the installer has a server shortcut), **Join our Discord** (when it has a Discord invite), **Open game folder** and the **Troubleshooting guide**, and the game folder with **Browse...** to pick another one. With Borderless1942 on, **Play** and **Join** start the game through it, like its desktop shortcut. The app runs as administrator, but it starts the game, folders and links as the signed-in user.
 
 ## How it works
 
 - **The library.** Setup keeps a copy of every fix the app can switch, plus the game's original files that the extras replace, in `{app}\Options`, and installs the app in `{app}\Options\App`.
 - **The game folder.** Below the folder's path on the left, **Browse...** picks another Battlefield 1942 folder. It must have `BF1942.exe` in it, and the app then uses the library in its `Options` folder. A folder with a library is remembered in the state key (`GameFolder`) and opens the next time. Without a remembered folder, the app opens the folder it is installed in, or else the one in the game's registry entry (`GAMEDIR`, which Setup writes too), whichever has `BF1942.exe`. So a copy of the app downloaded on its own, from this repository's Releases, finds the game, or can be pointed at it.
+- **Both tabs fit.** The window is sized for the tab that needs more room, and the cards on both tabs end on the same line, so switching tabs never scrolls.
 - **What is on** is read from the game folder every time: a file counts as on when it is identical (SHA-256) to its copy in the library. Extras that the installer was built without have no copy, and show as *Not included in this installer* (Borderless1942 on 32-bit Windows as *Only available on 64-bit Windows*); a font size without a copy is greyed out in the list.
 - **`options.json`** next to the exe tells the app what the installer was built with. BF1942-Installer's `build.ps1` writes it from `config.json`:
 
