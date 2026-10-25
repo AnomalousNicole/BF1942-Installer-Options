@@ -53,6 +53,7 @@ The left side has **Play**, **Join** (when the installer has a server shortcut),
 - **`versions.json`** in the library has the BF42++, DXVK and dgVoodoo2 versions the app shows next to each fix. A library from an older Setup has none, and the versions come from the state key (`VerBF42PP`, `VerDXVK`, `VerDgVoodoo2`).
 
 - **`cover.bmp`** next to the exe, when there is one, is shown at the top of the left side. `build.ps1` copies your largest `branding\WizardImage*.bmp`; without it the side shows the game's name.
+- **The player's own files are kept.** Before Apply replaces or removes a file in the game folder that is none of the library's copies (a `d3d8.dll` or `dsound.dll` from another fix or mod, a font of their own, ...), it copies it to `Options\Backup`, at the same path, and the message after Apply names it. A second file of the player's own by that name gets the time in its name.
 - **Administrator rights.** The manifest asks for them, because the app writes to the game folder and `HKLM`, and runs `sdbinst`. Every change is logged to `{app}\Options\Options.log`.
 
 ## On its own
@@ -60,10 +61,10 @@ The left side has **Play**, **Join** (when the installer has a server shortcut),
 `.\build.ps1 -Standalone` in BF1942-Installer writes `output\BF1942-Options-Standalone.zip`: the app, with an `options.json` that uses a state key of its own (`SOFTWARE\BF1942 Options`), and the library Setup would keep in the game folder in `Library` next to the exe. The app counts as standalone when `Library\BF42++` is there.
 
 1. Players extract the zip anywhere and run `BF1942 Options.exe`. It opens the folder from the game's registry entry or the one it was extracted in, or they click **Browse...**.
-2. In a folder without an `Options` library, **Set up** copies `Library` to `Options` in the game folder. `Options\Originals` gets the folder's own `menu.rfa` and `Battle_of_Britain.rfa`, unless they are the modified ones already (then the library's originals are used, when the build had a game folder), and its `Font.rfa` when that is none of the library's fonts. The game itself doesn't change.
-3. From then on the folder works like one Setup installed: the switches show what is on, and **Apply** changes it. Files that are neither fix, like another `d3d8.dll`, show as *neither DXVK nor dgVoodoo2* until a fix is picked.
+2. In a folder without an `Options` library, **Set up** copies `Library` to `Options` in the game folder. `Options\Originals` gets the folder's own `menu.rfa` and `Battle_of_Britain.rfa`, unless they are the modified ones already (then the library's originals are used, when the build had a game folder). The game itself doesn't change.
+3. From then on the folder works like one Setup installed: the switches show what is on, and **Apply** changes it. Files that are neither fix, like another `d3d8.dll`, show as *neither DXVK nor dgVoodoo2* until a fix is picked. Every file of the folder's own that Apply replaces or removes (DLLs, `Font.rfa`, ...) is kept in `Options\Backup` first.
 
-An extra that is on already in a folder with no original to go back to (for example a folder that already has the higher resolution `menu.rfa`) shows as on, with a note that it can't be switched. Delete `Options` in the game folder to undo the set up; the files the fixes put next to `BF1942.exe` stay until they are switched off first.
+An extra that is on already in a folder with no original to go back to (for example a folder that already has the higher resolution `menu.rfa`) shows as on, with a note that it can't be switched. To undo the set up, switch the fixes off, copy back what you want from `Options\Backup`, and delete `Options` in the game folder.
 
 ## Building
 

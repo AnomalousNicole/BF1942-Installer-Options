@@ -250,10 +250,36 @@ static partial class Game
     static bool Same(string a, string b) =>
         File.Exists(a) && File.Exists(b) && new FileInfo(a).Length == new FileInfo(b).Length && Hash(a) == Hash(b);
 
+    // The game folder's own files that Apply replaced or removed, kept in Backup in the library (this Apply's, for
+    // the message that says so)
+    const string LibBackup = "Backup";
+    public static readonly List<string> BackedUp = new();
+
+    // Keeps a file of the game folder in Backup before it is replaced or removed, unless it is one of the library's
+    // copies (or already there): in a game folder Setup didn't make, d3d8.dll, dsound.dll and the like can be the
+    // player's own, from another fix or mod, and could not be had back otherwise
+    static void Backup(string gameRel)
+    {
+        string p = G(gameRel);
+        if (!File.Exists(p) || !Directory.Exists(Lib)) return;
+        string name = Path.GetFileName(gameRel);
+        if (Directory.EnumerateFiles(Lib, name, SearchOption.AllDirectories).Any(f => Same(p, f))) return;
+        string dest = L(Path.Combine(LibBackup, gameRel));
+        // Another file of the player's own by that name was kept before: this one gets the time in its name
+        if (File.Exists(dest))
+            dest = Path.Combine(Path.GetDirectoryName(dest)!, Path.GetFileNameWithoutExtension(name) + " (" +
+                   DateTime.Now.ToString("yyyy-MM-dd HH.mm.ss", CultureInfo.InvariantCulture) + ")" + Path.GetExtension(name));
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        File.Copy(p, dest, true);
+        BackedUp.Add(gameRel);
+        Log("Kept the game folder's own " + gameRel + " in " + Path.GetRelativePath(Lib, dest));
+    }
+
     static void Copy(string libRel, string gameRel)
     {
         string dest = G(gameRel);
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        Backup(gameRel);
         if (File.Exists(dest)) File.SetAttributes(dest, FileAttributes.Normal);
         File.Copy(L(libRel), dest, true);
         Log("Copied " + libRel + " to " + gameRel);
@@ -280,6 +306,7 @@ static partial class Game
     {
         string p = G(gameRel);
         if (!File.Exists(p)) return;
+        Backup(gameRel);
         File.SetAttributes(p, FileAttributes.Normal);
         File.Delete(p);
         Log("Removed " + gameRel);
@@ -411,6 +438,7 @@ static partial class Game
 
     public static void Apply(Settings from, Settings to)
     {
+        BackedUp.Clear();
         if (to.Renderer != from.Renderer && to.Renderer != Renderer.Unknown)
         {
             // Only the DLLs go. dxvk.conf and dgVoodoo.conf stay, with the player's own settings, for when that fix
@@ -758,9 +786,10 @@ static partial class Game
     // Copies the app's library to Options in the game folder, so the folder works like one Setup installed. Nothing
     // in the game changes until Apply. Originals has the game's own menu.rfa and Battle_of_Britain.rfa, for turning
     // the extras that replace them off again: this folder's, unless they are the modified ones already, or else the
-    // ones the library brings (from the game build.ps1 was run with, like Setup's). A Font.rfa that is none of the
-    // library's fonts is kept there too, as picking a font size replaces it. BF42++'s folder, which makes the
-    // folder count as set up, is copied last, so a copy that was cut short is simply done again.
+    // ones the library brings (from the game build.ps1 was run with, like Setup's). Other files of the folder's own
+    // that Apply replaces or removes (a Font.rfa, d3d8.dll, dsound.dll, ...) go in Backup then (Game.Backup).
+    // BF42++'s folder, which makes the folder count as set up, is copied last, so a copy that was cut short is
+    // simply done again.
     public static void SetUp()
     {
         Directory.CreateDirectory(Lib);
@@ -773,8 +802,6 @@ static partial class Game
             {
                 KeepOriginal(MenuRfa, L(LibHiRes + @"\menu.rfa"));
                 KeepOriginal(BobRfa, L(LibSiren + @"\Battle_of_Britain.rfa"));
-                if (!Directory.Exists(L("Fonts")) || !Directory.GetFiles(L("Fonts"), "Font.rfa", SearchOption.AllDirectories).Any(f => Same(G(FontRfa), f)))
-                    KeepOriginal(FontRfa, null);
             }
             // Like Setup: Borderless1942 only runs on 64-bit Windows
             if (name == LibBL && !Environment.Is64BitOperatingSystem) continue;
@@ -785,11 +812,11 @@ static partial class Game
 
     // Copies a game file to Originals, unless it is missing, already there, or the modified copy that replaces it
     // (or there is no modified copy in the library, so the original is never needed)
-    static void KeepOriginal(string gameRel, string? modified)
+    static void KeepOriginal(string gameRel, string modified)
     {
         string dest = L(Path.Combine(LibOrig, Path.GetFileName(gameRel)));
         if (!File.Exists(G(gameRel)) || Same(G(gameRel), dest)) return;
-        if (modified != null && (!File.Exists(modified) || Same(G(gameRel), modified))) return;
+        if (!File.Exists(modified) || Same(G(gameRel), modified)) return;
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         File.Copy(G(gameRel), dest, true);
         Log("Kept the game folder's own " + gameRel + " in " + LibOrig);

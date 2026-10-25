@@ -540,7 +540,7 @@ public sealed partial class MainWindow : Window
         DgVoodoo.IsChecked = current.Renderer == Renderer.DgVoodoo;
         RendererNow.Text = current.Renderer switch
         {
-            Renderer.Unknown => "The graphics files in the game folder are neither DXVK nor dgVoodoo2. Pick one to replace them.",
+            Renderer.Unknown => "The graphics files in the game folder are neither DXVK nor dgVoodoo2. Pick one to replace them (they are kept in Options\\Backup).",
             Renderer.None => "No graphics fix is installed. Pick one and click Apply.",
             _ => "Installed now: " + Game.RendererName(current.Renderer) + ".",
         };
@@ -863,7 +863,10 @@ public sealed partial class MainWindow : Window
         {
             Game.Log("Apply");
             await Task.Run(() => Game.Apply(from, wanted));
-            Show(InfoBarSeverity.Success, "Done. Your changes are in place for the next time you start the game.");
+            // The game folder's own files that Apply replaced or removed
+            string[] kept = Game.BackedUp.Select(f => Path.GetFileName(f)).Distinct().ToArray();
+            Show(InfoBarSeverity.Success, "Done. Your changes are in place for the next time you start the game." + (kept.Length == 0 ? ""
+                 : " The game folder's own " + string.Join(", ", kept) + (kept.Length == 1 ? " is" : " are") + " kept in Options\\Backup."));
         }
         catch (Exception ex)
         {
