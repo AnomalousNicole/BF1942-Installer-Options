@@ -826,6 +826,8 @@ public sealed partial class MainWindow : Window
         string doing = remove ? "Removing " : (string)programControls[p.Id].Install.Content switch { "Turn on" => "Turning on ", "Repair" => "Repairing ", "Update" => "Updating ", _ => "Installing " };
         Show(InfoBarSeverity.Informational, p.Id == "richpresence" && !remove && Game.DownloadsDotNet8
             ? "Downloading the .NET 8 Desktop Runtime it needs from Microsoft, then " + doing.ToLowerInvariant() + p.Name + "... This can take a few minutes."
+            : !remove && Game.Downloads(p)
+            ? "Downloading " + p.Name + " from Microsoft, then " + doing.ToLowerInvariant() + "it... This can take a few minutes."
             : doing + p.Name + (p.Id == "punkbuster42" && !remove
                 ? ". Follow the PunkBuster installer, then click Install/Repair in the PunkBuster Services window and close it."
                 : "... This can take a few minutes."));

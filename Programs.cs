@@ -5,9 +5,9 @@
 // - the library's (Options\Programs in the game folder, which Setup installs and Set up copies; a standalone copy's
 //   Library\Programs before then): DataField42, Battlefield Rich Presence and Punkbuster42, so every game folder can
 //   add and remove them, whatever copy of the app runs
-// - a standalone copy's own, next to the exe: Microsoft's runtimes, which the build downloads. Without them a card
-//   says running the installer again installs it. The .NET 8 Desktop Runtime, which Battlefield Rich Presence
-//   needs, is downloaded from Microsoft then (DownloadDotNet8).
+// - a standalone copy's own, next to the exe: Microsoft's runtimes, which the build downloads. Without them the app
+//   downloads each one from Microsoft when it is installed, like build.ps1 does (DownloadDirectX, DownloadVCRedist,
+//   and DownloadDotNet8 for the .NET 8 Desktop Runtime that Battlefield Rich Presence needs).
 //
 // The runtimes and DirectPlay are shared with other games and programs, so like Setup's uninstaller the app never
 // removes them, and DirectX June 2010 has no uninstaller at all.
@@ -17,7 +17,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -110,9 +112,13 @@ static partial class Game
             "punkbuster42" => CheckPunkBuster(),
             _ => new ProgramState(false, "", false, "Install", false),
         };
-        // Without its installer (the copy Setup installs has none), there is nothing to install or repair it with:
-        // it says where to get it
-        if (p.Installer == null)
+        // Without its installer (the copy Setup installs has none), Microsoft's runtimes are downloaded; for the
+        // others there is nothing to install or repair them with: it says where to get them
+        if (Downloads(p))
+        {
+            if (s.CanInstall) s = s with { Text = s.Text + " " + s.InstallLabel + " downloads it from Microsoft." };
+        }
+        else if (p.Installer == null)
         {
             if (s.CanInstall && !s.Installed)
                 s = s with { Text = s.Text + " " + (Standalone ? "Not included in this download."
@@ -158,10 +164,11 @@ static partial class Game
             ? new System.Version(major, minor, bld) : null;
     }
 
-    static System.Version? VCBundled(ProgramInfo p)
+    static System.Version? VCBundled(ProgramInfo p) => p.Installer == null ? null : VCVersionOf(p.Installer);
+
+    static System.Version VCVersionOf(string installer)
     {
-        if (p.Installer == null) return null;
-        FileVersionInfo info = FileVersionInfo.GetVersionInfo(p.Installer);
+        FileVersionInfo info = FileVersionInfo.GetVersionInfo(installer);
         return new System.Version(info.FileMajorPart, info.FileMinorPart, info.FileBuildPart);
     }
 
@@ -305,17 +312,33 @@ static partial class Game
         switch (p.Id)
         {
             case "directx":
-                // DXSETUP.exe runs from the folder with its .cab files
-                RunAndCheck(p.Installer!, "/silent", Path.GetDirectoryName(p.Installer!)!);
+            {
+                string? temp = null;
+                try
+                {
+                    string setup = p.Installer ?? DownloadDirectX(temp = NewTempDir());
+                    // DXSETUP.exe runs from the folder with its .cab files
+                    RunAndCheck(setup, "/silent", Path.GetDirectoryName(setup)!);
+                }
+                finally { DeleteTempDir(temp); }
                 break;
+            }
             case "vcredist":
-                // Registered as current but its DLLs gone: /install would do nothing, so it repairs
-                bool repair = VCInstalled() is { } v && VCBundled(p) is { } b && v >= b && !VCFilesPresent;
-                RunAndCheck(p.Installer!, (repair ? "/repair" : "/install") + " /quiet /norestart");
+            {
+                string? temp = null;
+                try
+                {
+                    string setup = p.Installer ?? DownloadVCRedist(temp = NewTempDir());
+                    // Registered as current but its DLLs gone: /install would do nothing, so it repairs
+                    bool repair = VCInstalled() is { } v && v >= VCVersionOf(setup) && !VCFilesPresent;
+                    RunAndCheck(setup, (repair ? "/repair" : "/install") + " /quiet /norestart");
+                }
+                finally { DeleteTempDir(temp); }
                 if (!VCFilesPresent)
                     throw new Exception("The Visual C++ Redistributable could not restore msvcp140.dll and vcruntime140.dll. Open Settings > Apps > Installed apps, " +
                                         "find \"Microsoft Visual C++ Redistributable (x86)\", choose Modify and then Repair.");
                 break;
+            }
             case "directplay":
                 RunAndCheck(Path.Combine(System64, "dism.exe"), "/online /enable-feature /featurename:DirectPlay /all /norestart /quiet");
                 break;
@@ -339,22 +362,19 @@ static partial class Game
                 if (!DotNet8Present())
                 {
                     // From this copy's Programs folder, or else downloaded from Microsoft
-                    string? downloaded = null;
-                    string version = DotNet8.Version;
-                    if (DotNet8.Installer == null) downloaded = DownloadDotNet8(out version);
+                    string? temp = null;
                     try
                     {
+                        string version = DotNet8.Version;
+                        string setup = DotNet8.Installer ?? DownloadDotNet8(temp = NewTempDir(), out version);
                         Log("Installing " + DotNet8.Name + " " + version);
                         // The version is registered but its files are gone: /install would do nothing, so it repairs
                         using RegistryKey? reg = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
                             .OpenSubKey(@"SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App");
                         bool dnRepair = reg?.GetValue(version) != null;
-                        RunAndCheck(downloaded ?? DotNet8.Installer!, (dnRepair ? "/repair" : "/install") + " /quiet /norestart");
+                        RunAndCheck(setup, (dnRepair ? "/repair" : "/install") + " /quiet /norestart");
                     }
-                    finally
-                    {
-                        if (downloaded != null) try { Directory.Delete(Path.GetDirectoryName(downloaded)!, true); } catch { }
-                    }
+                    finally { DeleteTempDir(temp); }
                     if (!DotNet8Present()) throw new Exception("The .NET 8 Desktop Runtime could not be installed. Install it from https://dotnet.microsoft.com/download/dotnet/8.0 and try again.");
                 }
                 if (FindUninstallEntry("Battlefield Rich Presence") == null)
@@ -426,19 +446,106 @@ static partial class Game
 
     public static bool RestartNeeded;
 
+    // ---- Downloading Microsoft's runtimes, when no Programs folder has their installer ----
+
+    // DirectX and Visual C++ are installed from a download then
+    public static bool Downloads(ProgramInfo p) => p.Installer == null && p.Id is "directx" or "vcredist";
+
     // Battlefield Rich Presence's Install or Repair downloads the .NET 8 Desktop Runtime first: it is missing, and no
     // Programs folder has its installer
     public static bool DownloadsDotNet8 => DotNet8.Installer == null && !DotNet8Present();
 
+    // The same downloads as components.json in BF1942-Installer: DirectX June 2010 is pinned to its SHA-256, the
+    // newest Visual C++ Redistributable can't be, so it must be validly signed by Microsoft
+    const string DirectXUrl = "https://download.microsoft.com/download/8/4/A/84A35BF1-DAFE-4AE8-82AF-AD2AE20B6B14/directx_Jun2010_redist.exe";
+    const string DirectXSha256 = "053F76DCBB28802E23341B6A787E3B0791C0FA5C8D4D011B1044172DBF89C73B";
+    const string VCRedistUrl = "https://aka.ms/vs/17/release/vc_redist.x86.exe";
     const string DotNet8Feed = "https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json";
 
-    // The newest .NET 8 Desktop Runtime (x64) installer from Microsoft's release feed, like build.ps1's
-    // Resolve-DotnetRelease, checked against the SHA-512 the feed lists for it. It goes in a folder of its own in
-    // %TEMP%, which the caller deletes.
-    static string DownloadDotNet8(out string version)
+    // Each download goes in a folder of its own in %TEMP%, which the installing code deletes afterwards
+    static string NewTempDir()
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+        string dir = Path.Combine(Path.GetTempPath(), "BF1942 Options " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    static void DeleteTempDir(string? dir)
+    {
+        if (dir != null) try { Directory.Delete(dir, true); } catch { }
+    }
+
+    static HttpClient NewHttp()
+    {
+        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("BF1942-Options");
+        return http;
+    }
+
+    // Saves url to path, then check throws when the file isn't the one expected. On failure the file is deleted and
+    // the error says to install it from manualUrl instead.
+    static void Download(HttpClient http, string name, string url, string path, Action<string> check, string manualUrl)
+    {
+        Log("Downloading " + name + " from " + url);
+        try
+        {
+            using (Stream body = http.GetStreamAsync(url).GetAwaiter().GetResult())
+            using (FileStream save = File.Create(path))
+                body.CopyTo(save);
+            check(path);
+        }
+        catch (Exception ex)
+        {
+            try { File.Delete(path); } catch { }
+            throw new Exception("The " + name + " could not be downloaded (" + ex.Message + "). Check the internet connection and try again, " +
+                                "or install it from " + manualUrl + " first.", ex);
+        }
+        Log("Downloaded " + Path.GetFileName(path) + ", checked");
+    }
+
+    static void CheckHash(string path, HashAlgorithm algorithm, string expected)
+    {
+        string got;
+        using (FileStream read = File.OpenRead(path))
+            got = Convert.ToHexString(algorithm.ComputeHash(read));
+        if (!got.Equals(expected, StringComparison.OrdinalIgnoreCase))
+            throw new Exception("the file doesn't match the hash Microsoft gives for it");
+    }
+
+    // DirectX June 2010 is a self-extracting archive: it unpacks DXSETUP.exe and its .cab files into dir\DirectX
+    static string DownloadDirectX(string dir)
+    {
+        const string manual = "https://www.microsoft.com/download/details.aspx?id=8109";
+        string sfx = Path.Combine(dir, "directx_Jun2010_redist.exe");
+        using (HttpClient http = NewHttp())
+            Download(http, "DirectX End-User Runtime (June 2010)", DirectXUrl, sfx, path =>
+            {
+                using SHA256 sha = SHA256.Create();
+                CheckHash(path, sha, DirectXSha256);
+            }, manual);
+        string files = Path.Combine(dir, "DirectX");
+        RunAndCheck(sfx, "/Q /T:\"" + files + "\"");
+        string setup = Path.Combine(files, "DXSETUP.exe");
+        if (!File.Exists(setup)) throw new Exception("The DirectX download could not be unpacked. Install it from " + manual + " instead.");
+        return setup;
+    }
+
+    static string DownloadVCRedist(string dir)
+    {
+        string path = Path.Combine(dir, "VC_redist.x86.exe");
+        using (HttpClient http = NewHttp())
+            Download(http, "Visual C++ Redistributable (x86)", VCRedistUrl, path, CheckMicrosoftSignature,
+                     "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist");
+        Log("Visual C++ Redistributable version " + VCVersionOf(path));
+        return path;
+    }
+
+    // The newest .NET 8 Desktop Runtime (x64) installer from Microsoft's release feed, like build.ps1's
+    // Resolve-DotnetRelease, checked against the SHA-512 the feed lists for it
+    static string DownloadDotNet8(string dir, out string version)
+    {
+        const string manual = "https://dotnet.microsoft.com/download/dotnet/8.0";
+        using HttpClient http = NewHttp();
         string url, hash;
         try
         {
@@ -455,36 +562,73 @@ static partial class Game
         catch (Exception ex)
         {
             throw new Exception("Microsoft's list of .NET 8 downloads could not be read (" + ex.Message + "). Check the internet connection and try again, " +
-                                "or install the .NET 8 Desktop Runtime (x64) from https://dotnet.microsoft.com/download/dotnet/8.0 first.", ex);
+                                "or install the .NET 8 Desktop Runtime (x64) from " + manual + " first.", ex);
         }
         // Only an HTTPS download from Microsoft, with a hash to check it against
         if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) || uri.Scheme != Uri.UriSchemeHttps ||
             !uri.Host.EndsWith(".microsoft.com", StringComparison.OrdinalIgnoreCase) || hash.Length != 128)
-            throw new Exception("Microsoft's list of .NET 8 downloads has no usable Desktop Runtime installer. Install it from https://dotnet.microsoft.com/download/dotnet/8.0 first.");
+            throw new Exception("Microsoft's list of .NET 8 downloads has no usable Desktop Runtime installer. Install it from " + manual + " first.");
 
-        string dir = Path.Combine(Path.GetTempPath(), "BF1942 Options " + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
         string path = Path.Combine(dir, Path.GetFileName(uri.LocalPath));
-        Log("Downloading " + DotNet8.Name + " " + version + " from " + url);
+        Download(http, DotNet8.Name + " " + version, url, path, file =>
+        {
+            using SHA512 sha = SHA512.Create();
+            CheckHash(file, sha, hash);
+        }, manual);
+        return path;
+    }
+
+    // Like build.ps1's check of the Visual C++ download: a valid Authenticode signature (WinVerifyTrust, which also
+    // checks the chain up to a trusted root) whose certificate is Microsoft Corporation's
+    static void CheckMicrosoftSignature(string path)
+    {
+        var fileInfo = new WinTrustFileInfo { cbStruct = (uint)Marshal.SizeOf<WinTrustFileInfo>(), pcwszFilePath = path };
+        IntPtr pFile = Marshal.AllocHGlobal(Marshal.SizeOf<WinTrustFileInfo>());
         try
         {
-            using (Stream body = http.GetStreamAsync(uri).GetAwaiter().GetResult())
-            using (FileStream save = File.Create(path))
-                body.CopyTo(save);
-            string got;
-            using (FileStream read = File.OpenRead(path))
-                got = Convert.ToHexString(SHA512.HashData(read));
-            if (!got.Equals(hash, StringComparison.OrdinalIgnoreCase))
-                throw new Exception("the file doesn't match the SHA-512 Microsoft lists for it");
+            Marshal.StructureToPtr(fileInfo, pFile, false);
+            var data = new WinTrustData { cbStruct = (uint)Marshal.SizeOf<WinTrustData>(), dwUIChoice = 2 /* none */, dwUnionChoice = 1 /* file */, pFile = pFile };
+            Guid action = new("00AAC56B-CD44-11D0-8CC2-00C04FC295EE");   // WINTRUST_ACTION_GENERIC_VERIFY_V2
+            int result = WinVerifyTrust(IntPtr.Zero, ref action, ref data);
+            if (result != 0) throw new Exception($"its signature isn't valid (0x{result:X8})");
         }
-        catch (Exception ex)
+        finally
         {
-            try { Directory.Delete(dir, true); } catch { }
-            throw new Exception("The .NET 8 Desktop Runtime could not be downloaded (" + ex.Message + "). Check the internet connection and try again, " +
-                                "or install it from https://dotnet.microsoft.com/download/dotnet/8.0 first.", ex);
+            Marshal.DestroyStructure<WinTrustFileInfo>(pFile);
+            Marshal.FreeHGlobal(pFile);
         }
-        Log("Downloaded " + Path.GetFileName(path) + ", SHA-512 checked");
-        return path;
+        string subject;
+        // X509CertificateLoader has no way to read an Authenticode signature, so this keeps the obsolete call
+#pragma warning disable SYSLIB0057
+        try { subject = X509Certificate.CreateFromSignedFile(path).Subject + ","; }
+#pragma warning restore SYSLIB0057
+        catch (CryptographicException ex) { throw new Exception("its signature can't be read (" + ex.Message + ")"); }
+        if (!subject.Contains("CN=Microsoft Corporation,") && !subject.Contains("O=Microsoft Corporation,"))
+            throw new Exception("it isn't signed by Microsoft (" + subject.TrimEnd(',') + ")");
+    }
+
+    [DllImport("wintrust.dll", CharSet = CharSet.Unicode)]
+    static extern int WinVerifyTrust(IntPtr hwnd, ref Guid action, ref WinTrustData data);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct WinTrustFileInfo
+    {
+        public uint cbStruct;
+        public string pcwszFilePath;
+        public IntPtr hFile, pgKnownSubject;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct WinTrustData
+    {
+        public uint cbStruct;
+        public IntPtr pPolicyCallbackData, pSIPClientData;
+        public uint dwUIChoice, fdwRevocationChecks, dwUnionChoice;
+        public IntPtr pFile;
+        public uint dwStateAction;
+        public IntPtr hWVTStateData, pwszURLReference;
+        public uint dwProvFlags, dwUIContext;
+        public IntPtr pSignatureSettings;
     }
 
     // DataField42's patch to BF1942.exe (Bf1942ClientPatches.cs in Ahrkylien/BF1942-DataField42): bytes it writes over
