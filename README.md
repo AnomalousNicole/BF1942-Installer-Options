@@ -10,6 +10,8 @@ It also works **on its own**, with Battlefield 1942 folders that BF1942-Installe
 
 ![The BF42++ settings tab: HUD, chat and console, 3D map markers, controls, performance, and graphics and files, with the explanation of Smoother gameplay showing](docs/screenshot-bf42pp.png)
 
+![The Programs tab in the copy Setup installs: the DirectX runtime, DirectPlay, Battlefield Rich Presence, the Visual C++ Redistributable, DataField42 and PunkBuster, each with what is installed now, and what running the installer again adds](docs/screenshot-programs-installed.png)
+
 ---
 
 ## What it does
@@ -72,7 +74,7 @@ An extra that is on already in a folder with no original to go back to (for exam
 
 The third tab, **Programs**, has a card for each of the other things Setup's components page offers, with what is installed now and **Install** (or **Repair**, **Update**, **Turn on**) and **Remove**. In the copy Setup installs it removes the separate programs picked during install, and turns DirectPlay on; adding a program, or repairing one, is done by running Setup again (Custom), which the card says. A standalone copy also has their installers, in `Programs` next to the exe, with `programs.json` naming each one's file and version, so it installs them too. `Programs.cs` does what Setup and its uninstaller do (`installer\BF1942-Installer.iss` in BF1942-Installer), and logs it to `Options.log`:
 
-![The Programs tab: the DirectX runtime, DirectPlay, Battlefield Rich Presence, the Visual C++ Redistributable, DataField42 and PunkBuster, each with what is installed now and its buttons](docs/screenshot-programs.png)
+![The Programs tab of a standalone copy, with the installers: the DirectX runtime, DirectPlay, Battlefield Rich Presence, the Visual C++ Redistributable, DataField42 and PunkBuster, each with what is installed now and its buttons](docs/screenshot-programs.png)
 
 | Program | Install | Remove |
 |---|---|---|
