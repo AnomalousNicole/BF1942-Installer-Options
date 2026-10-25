@@ -119,6 +119,7 @@
             <SelectorBar x:Name="Tabs" Grid.Column="1" VerticalAlignment="Center" SelectionChanged="Tabs_SelectionChanged">
                 <SelectorBarItem x:Name="FixesTab" Text="Fixes and extras" IsSelected="True" />
                 <SelectorBarItem x:Name="PlusTab" Text="BF42++ settings" />
+                <SelectorBarItem x:Name="ProgramsTab" Text="Programs" />
             </SelectorBar>
             <TextBlock x:Name="Subtitle" Grid.Row="2" Grid.ColumnSpan="2" Foreground="{StaticResource HintBrush}" TextWrapping="Wrap" />
         </Grid>
@@ -309,6 +310,16 @@
                     <Grid x:Name="PlusLeft" RowSpacing="16" />
                     <Grid x:Name="PlusRight" Grid.Column="1" RowSpacing="16" />
                     <Grid x:Name="PlusThird" Grid.Column="2" RowSpacing="16" />
+                </Grid>
+            </ContentControl>
+
+            <!-- A standalone copy only: the programs and Windows components the installer adds, a card each with
+                 Install and Remove (MainWindow.xaml.cs, Programs.cs) -->
+            <ContentControl x:Name="ProgramOptions" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalAlignment="Top" Visibility="Collapsed">
+                <Grid x:Name="ProgramColumns" ColumnSpacing="16" VerticalAlignment="Top">
+                    <Grid x:Name="ProgramsLeft" RowSpacing="16" />
+                    <Grid x:Name="ProgramsRight" Grid.Column="1" RowSpacing="16" />
+                    <Grid x:Name="ProgramsThird" Grid.Column="2" RowSpacing="16" />
                 </Grid>
             </ContentControl>
             </Grid>

@@ -26,10 +26,16 @@ public sealed partial class MainWindow : Window
     static string NoOriginal(string file) => "The game's own " + file + " is not in Options\\Originals, so this can't be switched here.";
     static string NotIncluded => Game.Standalone ? "Not included in this download." : "Not included in this installer.";
     readonly string borderlessText, hiResText, sirenText, compatText;   // the hints, for an extra that is included
-    bool plusTab;         // the BF42++ settings tab is shown
+    int tab;              // the tab shown: 0 Fixes and extras, 1 BF42++ settings, 2 Programs
     readonly Border[] plusCards;                                         // one per group, in BF42ppSettings.cs's order
     readonly Dictionary<string, object> plusControls = new();            // each setting's switch, list, text box or ColorList
+    // The Programs tab: a standalone copy with the programs' installers (Programs.cs), one card per program
+    readonly bool programsShown = Game.Standalone && Game.HasPrograms;
+    readonly Border[] programCards;
+    readonly Dictionary<string, (TextBlock Status, Button Install, Button Remove)> programControls = new();
+    bool checkingPrograms;   // what is installed is being read
     const string FixesSubtitle = "Turn the fixes and extras on or off. Nothing changes until you click Apply. Close the game first.";
+    const string ProgramsSubtitle = "The programs and Windows components the installer adds. Each button acts at once. Close the game first.";
     const string PlusSubtitle = "BF42++'s own settings, in bf42++.ini. Point at a setting's name to see what it does. Nothing changes until you click Apply.";
     const string PlusOffSubtitle = "BF42++ is off on the Fixes and extras tab: these settings only work while it is on. Nothing changes until you click Apply.";
     // The title and the tabs next to each other from this width of the options area, in effective pixels
@@ -161,7 +167,9 @@ public sealed partial class MainWindow : Window
         var (w, h, r) = Game.PrimaryDisplay();
         ScreenNow.Text = $"Your main screen: {w} x {h} at {r} Hz.";
         plusCards = MakePlusCards();
-        ShowPage(false);
+        programCards = programsShown ? MakeProgramCards() : Array.Empty<Border>();
+        ProgramsTab.Visibility = programsShown ? Visibility.Visible : Visibility.Collapsed;
+        ShowPage(0);
         columns = 0;
         SetColumns(2);
 
@@ -194,6 +202,8 @@ public sealed partial class MainWindow : Window
         AutomationProperties.SetName(Dxvk, DxvkTitle.Text);
         AutomationProperties.SetName(DgVoodoo, DgVoodooTitle.Text);
         Columns.Opacity = PlusColumns.Opacity = Game.Installed ? 1 : 0.5;
+        // DataField42 and PunkBuster go in this game folder
+        if (programsShown) _ = RefreshProgramsAsync();
         if (Game.Installed)
         {
             await ReloadAsync();
@@ -343,7 +353,7 @@ public sealed partial class MainWindow : Window
         SideFolder.Measure(new Windows.Foundation.Size(side, double.PositiveInfinity));
         double sidebar = ArtMinHeight + SideButtons.DesiredSize.Height + SideFolder.DesiredSize.Height;
         double width = 0, height = 0;
-        Columns.MinHeight = PlusColumns.MinHeight = 0;   // the pages' own heights are measured (EqualizePages)
+        foreach (Grid g in PageColumns) g.MinHeight = 0;   // the pages' own heights are measured (EqualizePages)
         foreach (int n in new[] { 2, 3 })
         {
             double w = side + (n == 2 ? TwoColumnsWidth : ThreeColumnsWidth) + Root.Padding.Left + Root.Padding.Right;
@@ -476,6 +486,15 @@ public sealed partial class MainWindow : Window
             2 => new[] { p[..3], p[3..] },
             _ => new[] { new[] { p[0], p[2] }, new[] { p[1], p[3] }, p[4..] },
         });
+        // The programs: runtimes and DirectPlay | DataField42, Rich Presence and PunkBuster, or two per column
+        Border[] g = programCards;
+        if (g.Length > 0)
+            Arrange(ProgramColumns, new[] { ProgramsLeft, ProgramsRight, ProgramsThird }, n switch
+            {
+                1 => new[] { g },
+                2 => new[] { g[..3], g[3..] },
+                _ => new[] { g[..2], g[2..4], g[4..] },
+            });
     }
 
     // Puts each column's cards in its grid, and shows as many grids as there are columns
@@ -726,49 +745,147 @@ public sealed partial class MainWindow : Window
         return cards.ToArray();
     }
 
+    // A card per program (Game.Programs): its name and version, who made it and what it does, what is installed
+    // now, and Install (or Repair, Update, Turn on) and Remove. Shared runtimes have no Remove: other games and
+    // programs use them too.
+    Border[] MakeProgramCards()
+    {
+        var cards = new List<Border>();
+        foreach (ProgramInfo p in Game.Programs)
+        {
+            var panel = new Grid { RowSpacing = 6 };
+            panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            panel.RowDefinitions.Add(new RowDefinition());
+            var text = new StackPanel { Spacing = 4 };
+            text.Children.Add(new TextBlock { Text = (p.Name.ToUpperInvariant() + " " + p.Version).Trim(), Style = (Style)Application.Current.Resources["CardTitle"], TextWrapping = TextWrapping.Wrap });
+            text.Children.Add(new TextBlock
+            {
+                Text = "By " + p.Credit + ". " + p.Description + (p.Shared ? " Other games and programs use it too, so it stays installed." : ""),
+                Style = (Style)Application.Current.Resources["Hint"],
+            });
+            var status = new TextBlock { Text = "Checking...", Style = (Style)Application.Current.Resources["Setting"], TextWrapping = TextWrapping.Wrap };
+            text.Children.Add(status);
+            panel.Children.Add(text);
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 4, 0, 0) };
+            var install = new Button { Content = "Install", IsEnabled = false };
+            install.Click += (_, _) => ProgramAction(p, remove: false);
+            var remove = new Button { Content = "Remove", IsEnabled = false, Visibility = p.Shared ? Visibility.Collapsed : Visibility.Visible };
+            remove.Click += (_, _) => ProgramAction(p, remove: true);
+            AutomationProperties.SetName(install, "Install " + p.Name);
+            AutomationProperties.SetName(remove, "Remove " + p.Name);
+            buttons.Children.Add(install);
+            buttons.Children.Add(remove);
+            Grid.SetRow(buttons, 1);
+            panel.Children.Add(buttons);
+            programControls[p.Id] = (status, install, remove);
+            cards.Add(new Border { Style = (Style)Application.Current.Resources["Card"], Child = panel });
+        }
+        return cards.ToArray();
+    }
+
+    // Reads what is installed (DirectPlay takes a few seconds) and shows it on the cards
+    async Task RefreshProgramsAsync()
+    {
+        if (checkingPrograms) return;
+        checkingPrograms = true;
+        UpdateControls();
+        try
+        {
+            // All at once, so the quick ones don't wait for DirectPlay
+            var checks = Game.Programs.Select(p => Task.Run(() => Game.CheckProgram(p))).ToArray();
+            for (int i = 0; i < checks.Length; i++)
+            {
+                ProgramInfo p = Game.Programs[i];
+                var (status, install, remove) = programControls[p.Id];
+                ProgramState s;
+                try { s = await checks[i]; }
+                catch (Exception ex) { s = new ProgramState(false, "Could not be checked: " + ex.Message, false, "Install", false); }
+                status.Text = s.Text;
+                install.Content = s.InstallLabel;
+                AutomationProperties.SetName(install, s.InstallLabel + " " + p.Name);
+                install.IsEnabled = s.CanInstall;
+                remove.IsEnabled = s.CanRemove;
+            }
+        }
+        finally
+        {
+            checkingPrograms = false;
+            UpdateControls();
+        }
+    }
+
+    async void ProgramAction(ProgramInfo p, bool remove)
+    {
+        if (busy || checkingPrograms || !GameClosed(thisFolderOnly: false)) return;
+        SetBusy(true);
+        Game.RestartNeeded = false;
+        string doing = remove ? "Removing " : (string)programControls[p.Id].Install.Content switch { "Turn on" => "Turning on ", "Repair" => "Repairing ", "Update" => "Updating ", _ => "Installing " };
+        Show(InfoBarSeverity.Informational, doing + p.Name + (p.Id == "punkbuster42" && !remove
+            ? ". Follow the PunkBuster installer, then click Install/Repair in the PunkBuster Services window and close it."
+            : "... This can take a few minutes."));
+        try
+        {
+            await Task.Run(() => { if (remove) Game.RemoveProgram(p); else Game.InstallProgram(p); });
+            Show(InfoBarSeverity.Success, p.Name + (remove ? " is removed." : " is installed.") +
+                 (Game.RestartNeeded ? " Restart Windows to finish." : ""));
+        }
+        catch (Exception ex)
+        {
+            Game.Log((remove ? "Removing " : "Installing ") + p.Name + " failed: " + ex);
+            closeWhenDone = false;
+            Show(InfoBarSeverity.Error, p.Name + (remove ? " could not be removed: " : " could not be installed: ") + ex.Message);
+        }
+        SetBusy(false);
+        await RefreshProgramsAsync();
+    }
+
     void Tabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
         if (plusControls.Count == 0) return;   // the first tab is selected while the window is made
-        plusTab = sender.SelectedItem == PlusTab;
-        ShowPage(plusTab);
-        // In case this tab needs more room than the other one at this display scale
+        tab = sender.SelectedItem == PlusTab ? 1 : sender.SelectedItem == ProgramsTab ? 2 : 0;
+        ShowPage(tab);
+        // In case this tab needs more room than the others at this display scale
         KeepAllInView();
     }
 
-    // Shows a tab's page and says what it is for. FitToContent and CorrectHeight also show the other one for a
-    // moment, to measure it.
-    void ShowPage(bool plus)
+    // The tabs' pages and their columns, in the tabs' order; the Programs tab only in a standalone copy with Programs
+    ContentControl[] PageViews => new[] { Options, PlusOptions, ProgramOptions };
+    Grid[] PageColumns => new[] { Columns, PlusColumns, ProgramColumns };
+    IEnumerable<int> TabsShown => programsShown ? new[] { 0, 1, 2 } : new[] { 0, 1 };
+
+    // Shows a tab's page and says what it is for. FitToContent and CorrectHeight also show the others for a
+    // moment, to measure them.
+    void ShowPage(int page)
     {
-        Options.Visibility = plus ? Visibility.Collapsed : Visibility.Visible;
-        PlusOptions.Visibility = plus ? Visibility.Visible : Visibility.Collapsed;
-        Subtitle.Text = !plus ? FixesSubtitle : BF42pp.IsOn || current == null ? PlusSubtitle : PlusOffSubtitle;
+        for (int i = 0; i < PageViews.Length; i++) PageViews[i].Visibility = i == page ? Visibility.Visible : Visibility.Collapsed;
+        Subtitle.Text = page == 0 ? FixesSubtitle : page == 2 ? ProgramsSubtitle : BF42pp.IsOn || current == null ? PlusSubtitle : PlusOffSubtitle;
     }
 
-    // Both tabs' cards as tall as the taller tab needs at this width, so the last card in each column reaches down
-    // to the same line on both tabs. Not in one column, where the page scrolls anyway.
+    // Every tab's cards as tall as the tallest tab needs at this width, so the last card in each column reaches
+    // down to the same line on every tab. Not in one column, where the page scrolls anyway.
     void EqualizePages()
     {
         if (pendingFit > 0) return;
-        Columns.MinHeight = PlusColumns.MinHeight = 0;
+        foreach (Grid g in PageColumns) g.MinHeight = 0;
         if (columns == 1) return;
-        double most = 0;
-        foreach (bool plus in new[] { false, true })
-        {
-            ShowPage(plus);
-            Pages.Measure(new Windows.Foundation.Size(Scroller.ViewportWidth, double.PositiveInfinity));
-            most = Math.Max(most, Pages.DesiredSize.Height);
-        }
-        ShowPage(plusTab);
-        Columns.MinHeight = PlusColumns.MinHeight = most;
+        double most = TabsShown.Max(PageHeight);
+        ShowPage(tab);
+        foreach (Grid g in PageColumns) g.MinHeight = most;
     }
 
-    // The height the page of the tab not shown needs at the options area's width now
+    // The height a tab's page needs at the options area's width now (it is left shown)
+    double PageHeight(int page)
+    {
+        ShowPage(page);
+        Pages.Measure(new Windows.Foundation.Size(Scroller.ViewportWidth, double.PositiveInfinity));
+        return Pages.DesiredSize.Height;
+    }
+
+    // The height the tallest page of the tabs not shown needs at the options area's width now
     double OtherPageHeight()
     {
-        ShowPage(!plusTab);
-        Pages.Measure(new Windows.Foundation.Size(Scroller.ViewportWidth, double.PositiveInfinity));
-        double height = Pages.DesiredSize.Height;
-        ShowPage(plusTab);
+        double height = TabsShown.Where(t => t != tab).Max(PageHeight);
+        ShowPage(tab);
         return height;
     }
 
@@ -776,21 +893,23 @@ public sealed partial class MainWindow : Window
     double MeasureTabs(double width)
     {
         double most = 0;
-        foreach (bool plus in new[] { false, true })
+        foreach (int page in TabsShown)
         {
-            ShowPage(plus);
+            ShowPage(page);
             Root.Measure(new Windows.Foundation.Size(width, double.PositiveInfinity));
             most = Math.Max(most, Root.DesiredSize.Height);
         }
-        ShowPage(plusTab);
+        ShowPage(tab);
         return most;
     }
 
     // The options only while the game folder's state is known and nothing is being changed (IsEnabled, so the
-    // keyboard can't reach them either); Play and Join not while files are being changed
+    // keyboard can't reach them either); Play and Join not while files are being changed. The programs don't
+    // depend on the game folder's state.
     void UpdateControls()
     {
         Options.IsEnabled = PlusOptions.IsEnabled = Game.Installed && current != null && !reading && !busy;
+        ProgramOptions.IsEnabled = !reading && !busy && !picking && !checkingPrograms;
         PlayButton.IsEnabled = JoinButton.IsEnabled = Game.Installed && !busy;
         BrowseButton.IsEnabled = !busy && !reading && !picking;
         UpdateApply();
@@ -801,7 +920,7 @@ public sealed partial class MainWindow : Window
         if (loading) return;
         ApplyButton.IsEnabled = Options.IsEnabled && current != null && !checking && !Wanted().SameAs(current) && PlusProblem() == null;
         // The BF42++ tab says when BF42++ is switched off
-        if (plusTab) ShowPage(true);
+        if (tab == 1) ShowPage(1);
     }
 
     void SetBusy(bool on)

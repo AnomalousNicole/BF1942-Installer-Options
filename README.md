@@ -4,7 +4,7 @@
 
 This repository is the app's source. BF1942-Installer includes it as a git submodule at `installer\BF1942Options`, and its `build.ps1` builds the app into every installer. To build an installer, start from **[BF1942-Installer](https://github.com/AnomalousNicole/BF1942-Installer)**.
 
-It also works **on its own**, with Battlefield 1942 folders that BF1942-Installer did not install: `build.ps1 -Standalone` in BF1942-Installer builds `BF1942-Options-Standalone.zip`, the app with every fix and extra it switches. See [On its own](#on-its-own).
+It also works **on its own**, with Battlefield 1942 folders that BF1942-Installer did not install: `build.ps1 -Standalone` in BF1942-Installer builds `BF1942-Options-Standalone.zip`, the app with every fix and extra it switches, and a **Programs** tab that installs and removes the runtimes and separate programs the installer adds. See [On its own](#on-its-own).
 
 ![Battlefield 1942 Options, Fixes and extras tab: the graphics fix, game fixes, player name, CD key, extras and display options, with Play, Open game folder and the troubleshooting guide on the left](docs/screenshot.png)
 
@@ -14,7 +14,7 @@ It also works **on its own**, with Battlefield 1942 folders that BF1942-Installe
 
 ## What it does
 
-One window, in a Battlefield 1942 theme, with two tabs. **Fixes and extras** has every option the installer can switch on one page:
+One window, in a Battlefield 1942 theme, with two tabs (three in a standalone copy, with [Programs](#the-programs-tab)). **Fixes and extras** has every option the installer can switch on one page:
 
 | Option | What it changes |
 |---|---|
@@ -38,7 +38,7 @@ The left side has **Play**, **Join** (when the installer has a server shortcut),
 - **The library.** Setup keeps a copy of every fix the app can switch, plus the game's original files that the extras replace, in `{app}\Options`, and installs the app in `{app}\Options\App`.
 - **The game folder.** Below the folder's path on the left, **Browse...** picks another Battlefield 1942 folder. It must have `BF1942.exe` in it, and the app then uses the library in its `Options` folder. A folder with a library is remembered in the state key (`GameFolder`) and opens the next time. Without a remembered folder, the app opens the folder it is installed in, or else the one in the game's registry entry (`GAMEDIR`, which Setup writes too), whichever has `BF1942.exe`. So a copy of the app downloaded on its own, from this repository's Releases, finds the game, or can be pointed at it.
 - **On its own.** A standalone copy (see below) has the library next to the exe, in `Library`. A game folder without a library then gets a **Set up** button instead of an error. See [On its own](#on-its-own).
-- **Both tabs fit.** The window is sized for the tab that needs more room, and the cards on both tabs end on the same line, so switching tabs never scrolls.
+- **Every tab fits.** The window is sized for the tab that needs the most room, and the cards on every tab end on the same line, so switching tabs never scrolls.
 - **What is on** is read from the game folder every time: a file counts as on when it is identical (SHA-256) to its copy in the library. Extras that the installer was built without have no copy, and show as *Not included in this installer* (Borderless1942 on 32-bit Windows as *Only available on 64-bit Windows*); a font size without a copy is greyed out in the list.
 - **`options.json`** next to the exe tells the app what the installer was built with. BF1942-Installer's `build.ps1` writes it from `config.json`:
 
@@ -65,6 +65,21 @@ The left side has **Play**, **Join** (when the installer has a server shortcut),
 3. From then on the folder works like one Setup installed: the switches show what is on, and **Apply** changes it. Files that are neither fix, like another `d3d8.dll`, show as *neither DXVK nor dgVoodoo2* until a fix is picked. Every file of the folder's own that Apply replaces or removes (DLLs, `Font.rfa`, ...) is kept in `Options\Backup` first.
 
 An extra that is on already in a folder with no original to go back to (for example a folder that already has the higher resolution `menu.rfa`) shows as on, with a note that it can't be switched. To undo the set up, switch the fixes off, copy back what you want from `Options\Backup`, and delete `Options` in the game folder.
+
+### The Programs tab
+
+A standalone copy also has the installers of everything else Setup's components page offers, in `Programs` next to the exe, with `programs.json` naming each one's file and version. Its third tab, **Programs**, has a card for each, with what is installed now and **Install** (or **Repair**, **Update**, **Turn on**) and **Remove**. `Programs.cs` does what Setup and its uninstaller do (`installer\BF1942-Installer.iss` in BF1942-Installer), and logs it to `Options.log`:
+
+| Program | Install | Remove |
+|---|---|---|
+| DirectX End-User Runtime (June 2010) | `DXSETUP.exe /silent`, when one of its DLLs is missing from `SysWOW64` | None: other games use it, and it has no uninstaller |
+| Visual C++ Redistributable (x86) | `/install` when it is missing or older than the download's, `/repair` when it is registered but `msvcp140.dll` or `vcruntime140.dll` is gone | None: other programs use it |
+| DirectPlay | Turned on with DISM (its state comes from `Get-WindowsOptionalFeature`) | None: other games use it |
+| DataField42 (64-bit Windows) | Its installer, into this game folder, then closes the DataField42 it starts as administrator. It can be in one game folder per PC | Its uninstaller; then `BF1942.exe` as it was before DataField42 patched it (kept in `Options\Backup\Before DataField42`) and DataField42's settings folder |
+| Battlefield Rich Presence (64-bit Windows) | The .NET 8 Desktop Runtime when it is missing, then the MSI | `msiexec /x`; .NET 8 stays, as other programs use it |
+| PunkBuster | Punkbuster42, which opens its own windows, in this game folder; waits for the PunkBuster Services window to close | `pb`, `pbsvc.exe` and BF1942's PunkBuster entry in Apps, and the PunkBuster Services when no other game uses them (looked for like Setup's uninstaller does: Apps, EA's registry keys, the usual game folders and every Steam library) |
+
+Each button acts at once and needs every copy of the game closed. A program that the download doesn't have shows *Not included in this download*. The copy Setup installs has no `Programs` folder and no Programs tab: there, running Setup again adds them.
 
 ## Building
 
