@@ -5,6 +5,10 @@
 // from the game folder (a file counts as "on" when it is identical to its copy in the library), so the window
 // always shows the real state, also after the player changed files by hand. An extra that the installer was built without has no copy, and its switch is disabled.
 //
+// A copy of the app downloaded on its own (BF1942-Installer's build.ps1 -Standalone) brings that library with it, in
+// Library next to the exe, so it also works with Battlefield 1942 folders that BF1942-Installer did not install:
+// setting one up copies the library to Options there, and from then on the folder works like one Setup installed.
+//
 // options.json next to the exe (written by build.ps1) holds what differs between installers: the registry
 // key Setup keeps its state in, whether a CD key may be generated, the server shortcut's name and address, and
 // the community's Discord invite.
@@ -125,6 +129,10 @@ static partial class Game
     public static string Lib { get; private set; } = "";
     const string SavedFolder = "GameFolder";   // in the state key: the folder the player last picked
 
+    // The library a standalone copy of the app brings with it (none in the copy Setup installs)
+    static string Bundled => Path.Combine(AppContext.BaseDirectory, "Library");
+    public static bool Standalone => IsLibrary(Bundled);
+
     public static bool LibraryFound => IsLibrary(Lib);
     public static bool GameFound => HasGame(Dir);
     public static bool Installed => GameFound && LibraryFound;
@@ -133,12 +141,13 @@ static partial class Game
     static bool IsLibrary(string folder) => Directory.Exists(Path.Combine(folder, LibBF42pp));
     public static string FullPath(string dir) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir));
 
-    // The folder the window opens with: the one the player last picked, the one the app is installed in, or the
-    // one the game's registry entry names (Setup writes it too) - the first that has BF1942.exe
+    // The folder the window opens with: the one the player last picked, the one the app is installed in (or a
+    // standalone copy was extracted in), or the one the game's registry entry names (Setup writes it too) - the
+    // first that has BF1942.exe
     static string StartFolder()
     {
-        string own = Dir;
-        foreach (Func<string> dir in new Func<string>[] { () => State(SavedFolder), () => own, EaGameDir })
+        string own = Dir, parent = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
+        foreach (Func<string> dir in new Func<string>[] { () => State(SavedFolder), () => own, () => parent, EaGameDir })
         {
             try
             {
@@ -184,6 +193,9 @@ static partial class Game
     public static bool CompatAvailable => File.Exists(L(LibCompat + @"\BF1942.sdb"));
     public static bool HiResAvailable => File.Exists(L(LibHiRes + @"\menu.rfa")) && File.Exists(L(LibOrig + @"\menu.rfa"));
     public static bool SirenAvailable => File.Exists(L(LibSiren + @"\Battle_of_Britain.rfa")) && File.Exists(L(LibOrig + @"\Battle_of_Britain.rfa"));
+    // A game folder set up while the extra was on already has no original to turn it off with
+    public static bool HiResNoOriginal => File.Exists(L(LibHiRes + @"\menu.rfa")) && !HiResAvailable;
+    public static bool SirenNoOriginal => File.Exists(L(LibSiren + @"\Battle_of_Britain.rfa")) && !SirenAvailable;
     public static bool FontAvailable(int i) => File.Exists(FontFile(i));
     public static bool FontMissing => !File.Exists(G(FontRfa));
     public static string Art => Path.Combine(AppContext.BaseDirectory, "cover.bmp");
@@ -204,7 +216,19 @@ static partial class Game
         k.SetValue(name, value);
     }
 
-    public static string Version(string name) => State(name).TrimStart('v');
+    // The version of a fix in the library: versions.json in it (Setup and a standalone copy both put it there), or
+    // the state key for a library from an older Setup
+    public static string Version(string name)
+    {
+        string v = "";
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(L("versions.json")));
+            if (doc.RootElement.TryGetProperty(name, out JsonElement e)) v = e.GetString() ?? "";
+        }
+        catch { }
+        return (v != "" ? v : State(name)).TrimStart('v');
+    }
 
     public static string RendererName(Renderer r) => r switch
     {
@@ -704,12 +728,12 @@ static partial class Game
         return newProfile;
     }
 
-    static void CopyDir(string source, string dest)
+    static void CopyDir(string source, string dest, bool overwrite = false)
     {
         Directory.CreateDirectory(dest);
         if (!Directory.Exists(source)) return;
-        foreach (string f in Directory.GetFiles(source)) File.Copy(f, Path.Combine(dest, Path.GetFileName(f)), false);
-        foreach (string d in Directory.GetDirectories(source)) CopyDir(d, Path.Combine(dest, Path.GetFileName(d)));
+        foreach (string f in Directory.GetFiles(source)) File.Copy(f, Path.Combine(dest, Path.GetFileName(f)), overwrite);
+        foreach (string d in Directory.GetDirectories(source)) CopyDir(d, Path.Combine(dest, Path.GetFileName(d)), overwrite);
     }
 
     // Points the .con files in a folder that run a profile's files (Profile.con, Video.con, ...) at another profile
@@ -725,6 +749,50 @@ static partial class Game
         }
         string profileCon = Path.Combine(dir, "Profile.con");
         SetConLine(profileCon, "game.setProfile", "game.setProfile \"" + newProfile + "\"");
+    }
+
+    // ---- Setting up a game folder (a standalone copy of the app) ----
+
+    public static long BundledSize => Directory.GetFiles(Bundled, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
+
+    // Copies the app's library to Options in the game folder, so the folder works like one Setup installed. Nothing
+    // in the game changes until Apply. Originals has the game's own menu.rfa and Battle_of_Britain.rfa, for turning
+    // the extras that replace them off again: this folder's, unless they are the modified ones already, or else the
+    // ones the library brings (from the game build.ps1 was run with, like Setup's). A Font.rfa that is none of the
+    // library's fonts is kept there too, as picking a font size replaces it. BF42++'s folder, which makes the
+    // folder count as set up, is copied last, so a copy that was cut short is simply done again.
+    public static void SetUp()
+    {
+        Directory.CreateDirectory(Lib);
+        Log("Setting up this game folder from " + Bundled);
+        foreach (string f in Directory.GetFiles(Bundled)) File.Copy(f, L(Path.GetFileName(f)), true);
+        foreach (string d in Directory.GetDirectories(Bundled).OrderBy(d => Path.GetFileName(d) == LibBF42pp))
+        {
+            string name = Path.GetFileName(d);
+            if (name == LibBF42pp)
+            {
+                KeepOriginal(MenuRfa, L(LibHiRes + @"\menu.rfa"));
+                KeepOriginal(BobRfa, L(LibSiren + @"\Battle_of_Britain.rfa"));
+                if (!Directory.Exists(L("Fonts")) || !Directory.GetFiles(L("Fonts"), "Font.rfa", SearchOption.AllDirectories).Any(f => Same(G(FontRfa), f)))
+                    KeepOriginal(FontRfa, null);
+            }
+            // Like Setup: Borderless1942 only runs on 64-bit Windows
+            if (name == LibBL && !Environment.Is64BitOperatingSystem) continue;
+            CopyDir(d, L(name), overwrite: true);
+            Log("Copied " + name + " to the library");
+        }
+    }
+
+    // Copies a game file to Originals, unless it is missing, already there, or the modified copy that replaces it
+    // (or there is no modified copy in the library, so the original is never needed)
+    static void KeepOriginal(string gameRel, string? modified)
+    {
+        string dest = L(Path.Combine(LibOrig, Path.GetFileName(gameRel)));
+        if (!File.Exists(G(gameRel)) || Same(G(gameRel), dest)) return;
+        if (modified != null && (!File.Exists(modified) || Same(G(gameRel), modified))) return;
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        File.Copy(G(gameRel), dest, true);
+        Log("Kept the game folder's own " + gameRel + " in " + LibOrig);
     }
 
     // ---- CD key (the same rules as Setup: 22 characters, A-Z and 0-9) ----

@@ -23,7 +23,8 @@ public sealed partial class MainWindow : Window
     bool closeWhenDone;   // the window was closed while busy, and closes once that is done
     bool checking;        // the graphics card check runs: it picks a renderer when done, so no Apply meanwhile
     bool picking;         // the folder picker is open (it disables the window; the window stays open until it closes)
-    const string NotIncluded = "Not included in this installer.";
+    static string NoOriginal(string file) => "The game's own " + file + " is not in Options\\Originals, so this can't be switched here.";
+    static string NotIncluded => Game.Standalone ? "Not included in this download." : "Not included in this installer.";
     readonly string borderlessText, hiResText, sirenText, compatText;   // the hints, for an extra that is included
     bool plusTab;         // the BF42++ settings tab is shown
     readonly Border[] plusCards;                                         // one per group, in BF42ppSettings.cs's order
@@ -157,12 +158,6 @@ public sealed partial class MainWindow : Window
             SkipHint.Text += $" The \"{Game.ServerShortcut}\" shortcut always skips them.";
         // No CD key card: SetColumns leaves it out, so the card above it takes up the rest of its column
         if (!Game.SerialAllowed) SerialCard.Visibility = Visibility.Collapsed;
-        DxvkTitle.Text = ("DXVK " + Game.Version("VerDXVK")).Trim();
-        DgVoodooTitle.Text = ("dgVoodoo2 " + Game.Version("VerDgVoodoo2")).Trim();
-        BF42ppTitle.Text = ("BF42++ " + Game.Version("VerBF42PP")).Trim();
-        // The radio buttons' content is a title and a description, so screen readers get the title as the name
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Dxvk, DxvkTitle.Text);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DgVoodoo, DgVoodooTitle.Text);
         var (w, h, r) = Game.PrimaryDisplay();
         ScreenNow.Text = $"Your main screen: {w} x {h} at {r} Hz.";
         plusCards = MakePlusCards();
@@ -188,9 +183,16 @@ public sealed partial class MainWindow : Window
         CheckGraphics.IsEnabled = Game.VulkanCheckAvailable;
         BorderlessHint.Text = Game.BorderlessAvailable ? borderlessText
             : Environment.Is64BitOperatingSystem ? NotIncluded : "Only available on 64-bit Windows.";
-        HiResHint.Text = Game.HiResAvailable ? hiResText : NotIncluded;
-        SirenHint.Text = Game.SirenAvailable ? sirenText : NotIncluded;
+        HiResHint.Text = Game.HiResAvailable ? hiResText : Game.HiResNoOriginal ? NoOriginal("menu.rfa") : NotIncluded;
+        SirenHint.Text = Game.SirenAvailable ? sirenText : Game.SirenNoOriginal ? NoOriginal("Battle_of_Britain.rfa") : NotIncluded;
         CompatHint.Text = Game.CompatAvailable ? compatText : NotIncluded;
+        // The versions of the fixes in this folder's library
+        DxvkTitle.Text = ("DXVK " + Game.Version("VerDXVK")).Trim();
+        DgVoodooTitle.Text = ("dgVoodoo2 " + Game.Version("VerDgVoodoo2")).Trim();
+        BF42ppTitle.Text = ("BF42++ " + Game.Version("VerBF42PP")).Trim();
+        // The radio buttons' content is a title and a description, so screen readers get the title as the name
+        AutomationProperties.SetName(Dxvk, DxvkTitle.Text);
+        AutomationProperties.SetName(DgVoodoo, DgVoodooTitle.Text);
         Columns.Opacity = PlusColumns.Opacity = Game.Installed ? 1 : 0.5;
         if (Game.Installed)
         {
@@ -199,9 +201,44 @@ public sealed partial class MainWindow : Window
         }
         current = null;
         UpdateControls();
-        Show(InfoBarSeverity.Error, !Game.GameFound
-            ? "BF1942.exe is missing from " + Game.Dir + ". If an antivirus removed it, restore it there, or click Browse and pick the Battlefield 1942 folder."
-            : "The fixes this installer keeps in the game folder are not in " + Game.Dir + ". Click Browse and pick the folder you installed Battlefield 1942 in with this installer, or run the installer again.");
+        if (!Game.Standalone)
+            Show(InfoBarSeverity.Error, !Game.GameFound
+                ? "BF1942.exe is missing from " + Game.Dir + ". If an antivirus removed it, restore it there, or click Browse and pick the Battlefield 1942 folder."
+                : "The fixes this installer keeps in the game folder are not in " + Game.Dir + ". Click Browse and pick the folder you installed Battlefield 1942 in with this installer, or run the installer again.");
+        else if (!Game.GameFound)
+            Show(InfoBarSeverity.Informational, "Click Browse and pick your Battlefield 1942 folder: the one with BF1942.exe in it.");
+        else
+        {
+            // A standalone copy sets up any Battlefield 1942 folder with the library it brings
+            Show(InfoBarSeverity.Informational, $"BF1942 Options isn't set up in this game folder yet. Set up copies its fixes and extras " +
+                 $"to an Options folder there ({Game.BundledSize / 1048576.0:N0} MB). Nothing in the game changes until you click Apply.");
+            var setUp = new Button { Content = "Set up", Style = (Style)Application.Current.Resources["AccentButtonStyle"] };
+            setUp.Click += SetUp_Click;
+            Status.ActionButton = setUp;
+        }
+    }
+
+    async void SetUp_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || reading || checking || picking || Game.Installed || !Game.GameFound) return;
+        SetBusy(true);
+        try
+        {
+            await Task.Run(Game.SetUp);
+            try { Game.SaveFolder(); }
+            catch (Exception ex) { Game.Log("Saving the game folder failed: " + ex.Message); }
+            Status.IsOpen = false;
+            await OpenFolderAsync();
+            if (current != null) Show(InfoBarSeverity.Success, "Set up. Pick the fixes and extras you want and click Apply.");
+        }
+        catch (Exception ex)
+        {
+            Game.Log("Setting up failed: " + ex);
+            closeWhenDone = false;
+            Show(InfoBarSeverity.Error, "The game folder could not be set up: " + ex.Message +
+                 " If an antivirus blocked it, add an exclusion for the game folder and click Browse to pick it again.");
+        }
+        SetBusy(false);
     }
 
     async void Browse_Click(object sender, RoutedEventArgs e)
@@ -473,6 +510,7 @@ public sealed partial class MainWindow : Window
         SerialNow.Text = serial ? "A valid CD key is registered." : "No valid CD key was found.";
         SerialHint.Text = serial
             ? "Nothing to do. Battlefield 1942 uses the key that is already there."
+            : Game.Standalone ? "Battlefield 1942 needs one to play online. Generate a random key."
             : "Battlefield 1942 needs one to play online. Generate a random key; it is removed again when you uninstall the game.";
         GenerateSerial.IsEnabled = !serial;
     }
@@ -791,6 +829,7 @@ public sealed partial class MainWindow : Window
 
     void Show(InfoBarSeverity severity, string message)
     {
+        Status.ActionButton = null;   // only the Set up message has one, which OpenFolderAsync adds
         Status.Severity = severity;
         Status.Message = message;
         Status.Visibility = Visibility.Visible;
@@ -831,7 +870,8 @@ public sealed partial class MainWindow : Window
             Game.Log("Failed: " + ex);
             closeWhenDone = false;   // the window stays open, so the player sees what went wrong
             Show(InfoBarSeverity.Error, "Not everything could be changed: " + ex.Message +
-                 " If an antivirus blocked it, add an exclusion for the game folder and try again. Running the installer again also puts every fix back.");
+                 " If an antivirus blocked it, add an exclusion for the game folder and try again." +
+                 (Game.Standalone ? "" : " Running the installer again also puts every fix back."));
         }
         await ReloadAsync();
         SetBusy(false);

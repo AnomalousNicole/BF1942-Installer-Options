@@ -4,6 +4,8 @@
 
 This repository is the app's source. BF1942-Installer includes it as a git submodule at `installer\BF1942Options`, and its `build.ps1` builds the app into every installer. To build an installer, start from **[BF1942-Installer](https://github.com/AnomalousNicole/BF1942-Installer)**.
 
+It also works **on its own**, with Battlefield 1942 folders that BF1942-Installer did not install: `build.ps1 -Standalone` in BF1942-Installer builds `BF1942-Options-Standalone.zip`, the app with every fix and extra it switches. See [On its own](#on-its-own).
+
 ![Battlefield 1942 Options, Fixes and extras tab: the graphics fix, game fixes, player name, CD key, extras and display options, with Play, Open game folder and the troubleshooting guide on the left](docs/screenshot.png)
 
 ![The BF42++ settings tab: HUD, chat and console, 3D map markers, controls, performance, and graphics and files, with the explanation of Smoother gameplay showing](docs/screenshot-bf42pp.png)
@@ -35,6 +37,7 @@ The left side has **Play**, **Join** (when the installer has a server shortcut),
 
 - **The library.** Setup keeps a copy of every fix the app can switch, plus the game's original files that the extras replace, in `{app}\Options`, and installs the app in `{app}\Options\App`.
 - **The game folder.** Below the folder's path on the left, **Browse...** picks another Battlefield 1942 folder. It must have `BF1942.exe` in it, and the app then uses the library in its `Options` folder. A folder with a library is remembered in the state key (`GameFolder`) and opens the next time. Without a remembered folder, the app opens the folder it is installed in, or else the one in the game's registry entry (`GAMEDIR`, which Setup writes too), whichever has `BF1942.exe`. So a copy of the app downloaded on its own, from this repository's Releases, finds the game, or can be pointed at it.
+- **On its own.** A standalone copy (see below) has the library next to the exe, in `Library`. A game folder without a library then gets a **Set up** button instead of an error. See [On its own](#on-its-own).
 - **Both tabs fit.** The window is sized for the tab that needs more room, and the cards on both tabs end on the same line, so switching tabs never scrolls.
 - **What is on** is read from the game folder every time: a file counts as on when it is identical (SHA-256) to its copy in the library. Extras that the installer was built without have no copy, and show as *Not included in this installer* (Borderless1942 on 32-bit Windows as *Only available on 64-bit Windows*); a font size without a copy is greyed out in the list.
 - **`options.json`** next to the exe tells the app what the installer was built with. BF1942-Installer's `build.ps1` writes it from `config.json`:
@@ -47,8 +50,20 @@ The left side has **Play**, **Join** (when the installer has a server shortcut),
   | `discordUrl` | An invite for **Join our Discord** (`discordUrl`) |
   | `separatePrograms` | The separate programs the installer can add (DataField42, Battlefield Rich Presence, PunkBuster: the ones the build includes), named in the note at the bottom. An empty list hides the note |
 
+- **`versions.json`** in the library has the BF42++, DXVK and dgVoodoo2 versions the app shows next to each fix. A library from an older Setup has none, and the versions come from the state key (`VerBF42PP`, `VerDXVK`, `VerDgVoodoo2`).
+
 - **`cover.bmp`** next to the exe, when there is one, is shown at the top of the left side. `build.ps1` copies your largest `branding\WizardImage*.bmp`; without it the side shows the game's name.
 - **Administrator rights.** The manifest asks for them, because the app writes to the game folder and `HKLM`, and runs `sdbinst`. Every change is logged to `{app}\Options\Options.log`.
+
+## On its own
+
+`.\build.ps1 -Standalone` in BF1942-Installer writes `output\BF1942-Options-Standalone.zip`: the app, with an `options.json` that uses a state key of its own (`SOFTWARE\BF1942 Options`), and the library Setup would keep in the game folder in `Library` next to the exe. The app counts as standalone when `Library\BF42++` is there.
+
+1. Players extract the zip anywhere and run `BF1942 Options.exe`. It opens the folder from the game's registry entry or the one it was extracted in, or they click **Browse...**.
+2. In a folder without an `Options` library, **Set up** copies `Library` to `Options` in the game folder. `Options\Originals` gets the folder's own `menu.rfa` and `Battle_of_Britain.rfa`, unless they are the modified ones already (then the library's originals are used, when the build had a game folder), and its `Font.rfa` when that is none of the library's fonts. The game itself doesn't change.
+3. From then on the folder works like one Setup installed: the switches show what is on, and **Apply** changes it. Files that are neither fix, like another `d3d8.dll`, show as *neither DXVK nor dgVoodoo2* until a fix is picked.
+
+An extra that is on already in a folder with no original to go back to (for example a folder that already has the higher resolution `menu.rfa`) shows as on, with a note that it can't be switched. Delete `Options` in the game folder to undo the set up; the files the fixes put next to `BF1942.exe` stay until they are switched off first.
 
 ## Building
 
