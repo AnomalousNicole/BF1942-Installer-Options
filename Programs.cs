@@ -1,13 +1,14 @@
 // The programs and Windows components the installer adds besides the game folder's files: the DirectX and Visual C++
 // runtimes, DirectPlay, DataField42, Battlefield Rich Presence (with the .NET 8 Desktop Runtime) and PunkBuster. The
 // app installs and removes them the way Setup and its uninstaller do (installer\BF1942-Installer.iss in
-// BF1942-Installer), from installers in a Programs folder with programs.json naming each one's file and version:
-// - the library's (Options\Programs in the game folder, which Setup installs and Set up copies; a standalone copy's
-//   Library\Programs before then): DataField42, Battlefield Rich Presence and Punkbuster42, so every game folder can
-//   add and remove them, whatever copy of the app runs
-// - a standalone copy's own, next to the exe: Microsoft's runtimes, which the build downloads. Without them the app
-//   downloads each one from Microsoft when it is installed, like build.ps1 does (DownloadDirectX, DownloadVCRedist,
-//   and DownloadDotNet8 for the .NET 8 Desktop Runtime that Battlefield Rich Presence needs).
+// BF1942-Installer):
+// - DataField42, Battlefield Rich Presence and Punkbuster42 from the library's Programs folder, with programs.json
+//   naming each one's file and version (Options\Programs in the game folder, which Setup installs and Set up copies;
+//   a standalone copy's Library\Programs before then), so every game folder can add and remove them, whatever copy
+//   of the app runs
+// - Microsoft's runtimes downloaded from Microsoft whenever one is installed, the same downloads build.ps1 makes, so
+//   it is always the newest (DownloadDirectX, DownloadVCRedist, and DownloadDotNet8 for the .NET 8 Desktop Runtime
+//   that Battlefield Rich Presence needs). No copy of the app carries them.
 //
 // The runtimes and DirectPlay are shared with other games and programs, so like Setup's uninstaller the app never
 // removes them, and DirectX June 2010 has no uninstaller at all.
@@ -60,18 +61,21 @@ static partial class Game
     };
 
     // The .NET 8 Desktop Runtime is installed with Battlefield Rich Presence, so it has no card of its own
-    static readonly ProgramInfo DotNet8 = new() { Id = "dotnet8", Name = ".NET 8 Desktop Runtime (x64)", Credit = "Microsoft", Description = "", Shared = true };
+    const string DotNet8Name = ".NET 8 Desktop Runtime (x64)";
 
-    // The Programs folders, in the order an installer is looked for in: next to the exe, the game folder's library,
-    // and a standalone copy's library (before Set up copies it)
-    static string[] ProgramsDirs => new[] { Path.Combine(AppContext.BaseDirectory, LibPrograms), L(LibPrograms), Path.Combine(Bundled, LibPrograms) };
+    // The Programs folders, in the order an installer is looked for in: the game folder's library, and a standalone
+    // copy's library (before Set up copies it)
+    static string[] ProgramsDirs => new[] { L(LibPrograms), Path.Combine(Bundled, LibPrograms) };
 
-    // Each program's installer and version from the first Programs folder that has it. Again for every game folder.
+    // The separate programs: Microsoft's runtimes are downloaded, and DirectPlay is part of Windows (DISM turns it on)
+    static IEnumerable<ProgramInfo> SeparateProgramInfos => Programs.Where(p => !p.Shared);
+
+    // Each separate program's installer and version from the first Programs folder that has it. Again for every game
+    // folder.
     static void FindInstallers()
     {
-        foreach (ProgramInfo p in Programs.Append(DotNet8))
+        foreach (ProgramInfo p in SeparateProgramInfos)
         {
-            if (p.Id == "directplay") continue;   // part of Windows: DISM turns it on
             p.Installer = null;
             p.Version = "";
         }
@@ -82,7 +86,7 @@ static partial class Game
                 string json = Path.Combine(dir, "programs.json");
                 if (!File.Exists(json)) continue;
                 using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(json));
-                foreach (ProgramInfo p in Programs.Append(DotNet8))
+                foreach (ProgramInfo p in SeparateProgramInfos)
                 {
                     if (p.Installer != null || !doc.RootElement.TryGetProperty(p.Id, out JsonElement e)) continue;
                     if (!e.TryGetProperty("file", out JsonElement f) || f.GetString() is not { Length: > 0 } file) continue;
@@ -105,15 +109,15 @@ static partial class Game
         ProgramState s = p.Id switch
         {
             "directx" => CheckDirectX(),
-            "vcredist" => CheckVCRedist(p),
+            "vcredist" => CheckVCRedist(),
             "directplay" => CheckDirectPlay(),
             "datafield42" => CheckDataField42(),
             "richpresence" => CheckRichPresence(),
             "punkbuster42" => CheckPunkBuster(),
             _ => new ProgramState(false, "", false, "Install", false),
         };
-        // Without its installer (the copy Setup installs has none), Microsoft's runtimes are downloaded; for the
-        // others there is nothing to install or repair them with: it says where to get them
+        // Microsoft's runtimes are downloaded. Without its installer, a separate program has nothing to install or
+        // repair it with: it says where to get it.
         if (Downloads(p))
         {
             if (s.CanInstall) s = s with { Text = s.Text + " " + s.InstallLabel + " downloads it from Microsoft." };
@@ -123,7 +127,6 @@ static partial class Game
             if (s.CanInstall && !s.Installed)
                 s = s with { Text = s.Text + " " + (Standalone ? "Not included in this download."
                     : s.InstallLabel == "Repair" ? "Running the installer again repairs it."
-                    : p.Shared ? "Running the installer again installs it."
                     : SeparatePrograms == null || SeparatePrograms.Contains(p.Name) ? "Running the installer again (Custom) adds it."
                     : "Not included in this installer.") };
             s = s with { CanInstall = false };
@@ -164,23 +167,19 @@ static partial class Game
             ? new System.Version(major, minor, bld) : null;
     }
 
-    static System.Version? VCBundled(ProgramInfo p) => p.Installer == null ? null : VCVersionOf(p.Installer);
-
     static System.Version VCVersionOf(string installer)
     {
         FileVersionInfo info = FileVersionInfo.GetVersionInfo(installer);
         return new System.Version(info.FileMajorPart, info.FileMinorPart, info.FileBuildPart);
     }
 
-    // Like Setup: registered and at least the version this download has, with its DLLs there (an entry can outlive
-    // them, after a cleaner tool or a failed update: then it is repaired)
-    static ProgramState CheckVCRedist(ProgramInfo p)
+    // Registered, with its DLLs there (an entry can outlive them, after a cleaner tool or a failed update: then it is
+    // repaired). Which version the download has is only known once it is downloaded, so any version counts.
+    static ProgramState CheckVCRedist()
     {
-        System.Version? installed = VCInstalled(), bundled = VCBundled(p);
+        System.Version? installed = VCInstalled();
         if (installed == null) return new ProgramState(false, "Not installed.", true, "Install", false);
         if (!VCFilesPresent) return new ProgramState(false, $"Version {installed} is registered, but its files are missing.", true, "Repair", false);
-        if (bundled != null && installed < bundled)
-            return new ProgramState(true, $"Version {installed} is installed. This download has {bundled}.", true, "Update", false);
         return new ProgramState(true, $"Version {installed} is installed.", false, "Install", false);
     }
 
@@ -316,7 +315,7 @@ static partial class Game
                 string? temp = null;
                 try
                 {
-                    string setup = p.Installer ?? DownloadDirectX(temp = NewTempDir());
+                    string setup = DownloadDirectX(temp = NewTempDir());
                     // DXSETUP.exe runs from the folder with its .cab files
                     RunAndCheck(setup, "/silent", Path.GetDirectoryName(setup)!);
                 }
@@ -328,7 +327,7 @@ static partial class Game
                 string? temp = null;
                 try
                 {
-                    string setup = p.Installer ?? DownloadVCRedist(temp = NewTempDir());
+                    string setup = DownloadVCRedist(temp = NewTempDir());
                     // Registered as current but its DLLs gone: /install would do nothing, so it repairs
                     bool repair = VCInstalled() is { } v && v >= VCVersionOf(setup) && !VCFilesPresent;
                     RunAndCheck(setup, (repair ? "/repair" : "/install") + " /quiet /norestart");
@@ -361,13 +360,11 @@ static partial class Game
             case "richpresence":
                 if (!DotNet8Present())
                 {
-                    // From this copy's Programs folder, or else downloaded from Microsoft
                     string? temp = null;
                     try
                     {
-                        string version = DotNet8.Version;
-                        string setup = DotNet8.Installer ?? DownloadDotNet8(temp = NewTempDir(), out version);
-                        Log("Installing " + DotNet8.Name + " " + version);
+                        string setup = DownloadDotNet8(temp = NewTempDir(), out string version);
+                        Log("Installing " + DotNet8Name + " " + version);
                         // The version is registered but its files are gone: /install would do nothing, so it repairs
                         using RegistryKey? reg = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
                             .OpenSubKey(@"SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App");
@@ -446,14 +443,13 @@ static partial class Game
 
     public static bool RestartNeeded;
 
-    // ---- Downloading Microsoft's runtimes, when no Programs folder has their installer ----
+    // ---- Downloading Microsoft's runtimes ----
 
-    // DirectX and Visual C++ are installed from a download then
-    public static bool Downloads(ProgramInfo p) => p.Installer == null && p.Id is "directx" or "vcredist";
+    // DirectX and Visual C++ are installed from a download
+    public static bool Downloads(ProgramInfo p) => p.Id is "directx" or "vcredist";
 
-    // Battlefield Rich Presence's Install or Repair downloads the .NET 8 Desktop Runtime first: it is missing, and no
-    // Programs folder has its installer
-    public static bool DownloadsDotNet8 => DotNet8.Installer == null && !DotNet8Present();
+    // Battlefield Rich Presence's Install or Repair downloads the .NET 8 Desktop Runtime first when it is missing
+    public static bool DownloadsDotNet8 => !DotNet8Present();
 
     // The same downloads as components.json in BF1942-Installer: DirectX June 2010 is pinned to its SHA-256, the
     // newest Visual C++ Redistributable can't be, so it must be validly signed by Microsoft
@@ -570,7 +566,7 @@ static partial class Game
             throw new Exception("Microsoft's list of .NET 8 downloads has no usable Desktop Runtime installer. Install it from " + manual + " first.");
 
         string path = Path.Combine(dir, Path.GetFileName(uri.LocalPath));
-        Download(http, DotNet8.Name + " " + version, url, path, file =>
+        Download(http, DotNet8Name + " " + version, url, path, file =>
         {
             using SHA512 sha = SHA512.Create();
             CheckHash(file, sha, hash);
