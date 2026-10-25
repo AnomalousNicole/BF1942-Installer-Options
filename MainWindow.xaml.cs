@@ -199,6 +199,7 @@ public sealed partial class MainWindow : Window
         // The radio buttons' content is a title and a description, so screen readers get the title as the name
         AutomationProperties.SetName(Dxvk, DxvkTitle.Text);
         AutomationProperties.SetName(DgVoodoo, DgVoodooTitle.Text);
+        AutomationProperties.SetName(NoRenderer, "No graphics fix");
         Columns.Opacity = PlusColumns.Opacity = Game.Installed ? 1 : 0.5;
         // DataField42 and PunkBuster go in this game folder
         _ = RefreshProgramsAsync();
@@ -555,10 +556,11 @@ public sealed partial class MainWindow : Window
         loading = true;
         Dxvk.IsChecked = current.Renderer == Renderer.DXVK;
         DgVoodoo.IsChecked = current.Renderer == Renderer.DgVoodoo;
+        NoRenderer.IsChecked = current.Renderer == Renderer.None;
         RendererNow.Text = current.Renderer switch
         {
             Renderer.Unknown => "The graphics files in the game folder are neither DXVK nor dgVoodoo2. Pick one to replace them (they are kept in Options\\Backup).",
-            Renderer.None => "No graphics fix is installed. Pick one and click Apply.",
+            Renderer.None => "No graphics fix is installed.",
             _ => "Installed now: " + Game.RendererName(current.Renderer) + ".",
         };
         ShowSerial();
@@ -652,6 +654,7 @@ public sealed partial class MainWindow : Window
         Settings w = current!.Clone();
         if (Dxvk.IsChecked == true) w.Renderer = Renderer.DXVK;
         else if (DgVoodoo.IsChecked == true) w.Renderer = Renderer.DgVoodoo;
+        else if (NoRenderer.IsChecked == true) w.Renderer = Renderer.None;
         w.BF42pp = BF42pp.IsOn;
         w.Audio = Audio.IsOn;
         w.Font = FontSize.SelectedIndex >= 0 && FontSize.SelectedIndex < Game.FontNames.Length ? FontSize.SelectedIndex : -1;
@@ -821,9 +824,11 @@ public sealed partial class MainWindow : Window
         SetBusy(true);
         Game.RestartNeeded = false;
         string doing = remove ? "Removing " : (string)programControls[p.Id].Install.Content switch { "Turn on" => "Turning on ", "Repair" => "Repairing ", "Update" => "Updating ", _ => "Installing " };
-        Show(InfoBarSeverity.Informational, doing + p.Name + (p.Id == "punkbuster42" && !remove
-            ? ". Follow the PunkBuster installer, then click Install/Repair in the PunkBuster Services window and close it."
-            : "... This can take a few minutes."));
+        Show(InfoBarSeverity.Informational, p.Id == "richpresence" && !remove && Game.DownloadsDotNet8
+            ? "Downloading the .NET 8 Desktop Runtime it needs from Microsoft, then " + doing.ToLowerInvariant() + p.Name + "... This can take a few minutes."
+            : doing + p.Name + (p.Id == "punkbuster42" && !remove
+                ? ". Follow the PunkBuster installer, then click Install/Repair in the PunkBuster Services window and close it."
+                : "... This can take a few minutes."));
         try
         {
             await Task.Run(() => { if (remove) Game.RemoveProgram(p); else Game.InstallProgram(p); });

@@ -163,6 +163,12 @@
                                         <TextBlock Style="{StaticResource Hint}" Text="By Dege. For older cards and AMD Radeon RX 400/500, or if DXVK gives you a black screen." />
                                     </StackPanel>
                                 </RadioButton>
+                                <RadioButton x:Name="NoRenderer" GroupName="Renderer" Checked="Changed">
+                                    <StackPanel>
+                                        <TextBlock x:Name="NoRendererTitle" Text="None" Style="{StaticResource Setting}" />
+                                        <TextBlock Style="{StaticResource Hint}" Text="Removes the graphics fix: the game uses its own Direct3D 8, which often runs badly on today's PCs." />
+                                    </StackPanel>
+                                </RadioButton>
                                 <Grid ColumnSpacing="12" Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                     <TextBlock x:Name="RendererNow" Style="{StaticResource Hint}" VerticalAlignment="Center" />

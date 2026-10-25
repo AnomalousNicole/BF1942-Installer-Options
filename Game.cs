@@ -442,7 +442,7 @@ static partial class Game
         BackedUp.Clear();
         if (to.Renderer != from.Renderer && to.Renderer != Renderer.Unknown)
         {
-            // Only the DLLs go. dxvk.conf and dgVoodoo.conf stay, with the player's own settings, for when that fix
+            // Only the DLLs go (with None, nothing takes their place: the game uses its own Direct3D 8). dxvk.conf and dgVoodoo.conf stay, with the player's own settings, for when that fix
             // is picked again: only DXVK reads dxvk.conf and only dgVoodoo2 reads dgVoodoo.conf.
             foreach (string f in new[] { "d3d8.dll", "d3d9.dll" }) Remove(f);
             if (to.Renderer == Renderer.DXVK) CopyFolder(LibDXVK);

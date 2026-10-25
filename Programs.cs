@@ -6,7 +6,8 @@
 //   Library\Programs before then): DataField42, Battlefield Rich Presence and Punkbuster42, so every game folder can
 //   add and remove them, whatever copy of the app runs
 // - a standalone copy's own, next to the exe: Microsoft's runtimes, which the build downloads. Without them a card
-//   says running the installer again installs it.
+//   says running the installer again installs it. The .NET 8 Desktop Runtime, which Battlefield Rich Presence
+//   needs, is downloaded from Microsoft then (DownloadDotNet8).
 //
 // The runtimes and DirectPlay are shared with other games and programs, so like Setup's uninstaller the app never
 // removes them, and DirectX June 2010 has no uninstaller at all.
@@ -15,6 +16,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -248,14 +251,11 @@ static partial class Game
 
     static ProgramState CheckRichPresence()
     {
-        // .NET 8 comes from Microsoft: only a standalone copy brings its installer
-        if (FindUninstallEntry("Battlefield Rich Presence") == null)
-            return DotNet8Present() || DotNet8.Installer != null
-                ? new ProgramState(false, "Not installed.", true, "Install", false)
-                : new ProgramState(false, "Not installed. It needs the .NET 8 Desktop Runtime (x64) first: get it from Microsoft at dotnet.microsoft.com/download/dotnet/8.0, then come back here.", false, "Install", false);
+        string download = DownloadsDotNet8 ? " Install downloads the .NET 8 Desktop Runtime it needs from Microsoft first." : "";
+        if (FindUninstallEntry("Battlefield Rich Presence") == null) return new ProgramState(false, "Not installed." + download, true, "Install", false);
         return DotNet8Present()
             ? new ProgramState(true, "Installed.", false, "Repair", true)
-            : new ProgramState(false, "Installed, but the .NET 8 Desktop Runtime it needs is missing.", true, "Repair", true);
+            : new ProgramState(false, "Installed, but the .NET 8 Desktop Runtime it needs is missing." + download.Replace("Install", "Repair"), true, "Repair", true);
     }
 
     static string ProgramFiles64 => Environment.GetEnvironmentVariable("ProgramW6432") ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
@@ -338,13 +338,23 @@ static partial class Game
             case "richpresence":
                 if (!DotNet8Present())
                 {
-                    if (DotNet8.Installer == null) throw new Exception("The .NET 8 Desktop Runtime (x64) it needs is missing. Get it from Microsoft at https://dotnet.microsoft.com/download/dotnet/8.0 and try again.");
-                    Log("Installing " + DotNet8.Name);
-                    // The version is registered but its files are gone: /install would do nothing, so it repairs
-                    using RegistryKey? reg = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
-                        .OpenSubKey(@"SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App");
-                    bool dnRepair = reg?.GetValue(DotNet8.Version) != null;
-                    RunAndCheck(DotNet8.Installer, (dnRepair ? "/repair" : "/install") + " /quiet /norestart");
+                    // From this copy's Programs folder, or else downloaded from Microsoft
+                    string? downloaded = null;
+                    string version = DotNet8.Version;
+                    if (DotNet8.Installer == null) downloaded = DownloadDotNet8(out version);
+                    try
+                    {
+                        Log("Installing " + DotNet8.Name + " " + version);
+                        // The version is registered but its files are gone: /install would do nothing, so it repairs
+                        using RegistryKey? reg = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
+                            .OpenSubKey(@"SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App");
+                        bool dnRepair = reg?.GetValue(version) != null;
+                        RunAndCheck(downloaded ?? DotNet8.Installer!, (dnRepair ? "/repair" : "/install") + " /quiet /norestart");
+                    }
+                    finally
+                    {
+                        if (downloaded != null) try { Directory.Delete(Path.GetDirectoryName(downloaded)!, true); } catch { }
+                    }
                     if (!DotNet8Present()) throw new Exception("The .NET 8 Desktop Runtime could not be installed. Install it from https://dotnet.microsoft.com/download/dotnet/8.0 and try again.");
                 }
                 if (FindUninstallEntry("Battlefield Rich Presence") == null)
@@ -415,6 +425,67 @@ static partial class Game
     }
 
     public static bool RestartNeeded;
+
+    // Battlefield Rich Presence's Install or Repair downloads the .NET 8 Desktop Runtime first: it is missing, and no
+    // Programs folder has its installer
+    public static bool DownloadsDotNet8 => DotNet8.Installer == null && !DotNet8Present();
+
+    const string DotNet8Feed = "https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json";
+
+    // The newest .NET 8 Desktop Runtime (x64) installer from Microsoft's release feed, like build.ps1's
+    // Resolve-DotnetRelease, checked against the SHA-512 the feed lists for it. It goes in a folder of its own in
+    // %TEMP%, which the caller deletes.
+    static string DownloadDotNet8(out string version)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("BF1942-Options");
+        string url, hash;
+        try
+        {
+            using JsonDocument feed = JsonDocument.Parse(http.GetStringAsync(DotNet8Feed).GetAwaiter().GetResult());
+            string latest = feed.RootElement.GetProperty("latest-release").GetString() ?? "";
+            JsonElement desktop = feed.RootElement.GetProperty("releases").EnumerateArray()
+                .First(r => r.GetProperty("release-version").GetString() == latest).GetProperty("windowsdesktop");
+            JsonElement file = desktop.GetProperty("files").EnumerateArray()
+                .First(f => f.GetProperty("rid").GetString() == "win-x64" && (f.GetProperty("name").GetString() ?? "").EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
+            version = desktop.GetProperty("version").GetString() ?? "";
+            url = file.GetProperty("url").GetString() ?? "";
+            hash = file.GetProperty("hash").GetString() ?? "";
+        }
+        catch (Exception ex)
+        {
+            throw new Exception("Microsoft's list of .NET 8 downloads could not be read (" + ex.Message + "). Check the internet connection and try again, " +
+                                "or install the .NET 8 Desktop Runtime (x64) from https://dotnet.microsoft.com/download/dotnet/8.0 first.", ex);
+        }
+        // Only an HTTPS download from Microsoft, with a hash to check it against
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) || uri.Scheme != Uri.UriSchemeHttps ||
+            !uri.Host.EndsWith(".microsoft.com", StringComparison.OrdinalIgnoreCase) || hash.Length != 128)
+            throw new Exception("Microsoft's list of .NET 8 downloads has no usable Desktop Runtime installer. Install it from https://dotnet.microsoft.com/download/dotnet/8.0 first.");
+
+        string dir = Path.Combine(Path.GetTempPath(), "BF1942 Options " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, Path.GetFileName(uri.LocalPath));
+        Log("Downloading " + DotNet8.Name + " " + version + " from " + url);
+        try
+        {
+            using (Stream body = http.GetStreamAsync(uri).GetAwaiter().GetResult())
+            using (FileStream save = File.Create(path))
+                body.CopyTo(save);
+            string got;
+            using (FileStream read = File.OpenRead(path))
+                got = Convert.ToHexString(SHA512.HashData(read));
+            if (!got.Equals(hash, StringComparison.OrdinalIgnoreCase))
+                throw new Exception("the file doesn't match the SHA-512 Microsoft lists for it");
+        }
+        catch (Exception ex)
+        {
+            try { Directory.Delete(dir, true); } catch { }
+            throw new Exception("The .NET 8 Desktop Runtime could not be downloaded (" + ex.Message + "). Check the internet connection and try again, " +
+                                "or install it from https://dotnet.microsoft.com/download/dotnet/8.0 first.", ex);
+        }
+        Log("Downloaded " + Path.GetFileName(path) + ", SHA-512 checked");
+        return path;
+    }
 
     // DataField42's patch to BF1942.exe (Bf1942ClientPatches.cs in Ahrkylien/BF1942-DataField42): bytes it writes over
     // the 1.61 BF1942.exe, at these offsets, and the game's own bytes there. It makes the game start DataField42.exe
