@@ -29,8 +29,9 @@ public sealed partial class MainWindow : Window
     int tab;              // the tab shown: 0 Fixes and extras, 1 BF42++ settings, 2 Programs
     readonly Border[] plusCards;                                         // one per group, in BF42ppSettings.cs's order
     readonly Dictionary<string, object> plusControls = new();            // each setting's switch, list, text box or ColorList
-    // The Programs tab: a standalone copy with the programs' installers (Programs.cs), one card per program
-    readonly bool programsShown = Game.Standalone && Game.HasPrograms;
+    // The Programs tab (Programs.cs), one card per program: in the copy Setup installs, and in a standalone copy
+    // with the programs' installers
+    readonly bool programsShown = !Game.Standalone || Game.HasPrograms;
     readonly Border[] programCards;
     readonly Dictionary<string, (TextBlock Status, Button Install, Button Remove)> programControls = new();
     bool checkingPrograms;   // what is installed is being read
@@ -138,10 +139,10 @@ public sealed partial class MainWindow : Window
                 FooterNote.Visibility = Visibility.Collapsed;
             }
             else if (programs.Length == 1)
-                FooterNote.Text = programs[0] + " is a separate program: run the installer again (Custom) to add it, or remove it in Settings > Apps.";
+                FooterNote.Text = programs[0] + " is a separate program: run the installer again (Custom) to add it, or remove it on the Programs tab.";
             else
                 FooterNote.Text = string.Join(", ", programs[..^1]) + " and " + programs[^1] +
-                                  " are separate programs: run the installer again (Custom) to add them, or remove them in Settings > Apps.";
+                                  " are separate programs: run the installer again (Custom) to add them, or remove them on the Programs tab.";
         }
         AppWindow.Closing += (_, args) =>
         {
@@ -819,6 +820,7 @@ public sealed partial class MainWindow : Window
         if (busy || checkingPrograms || !GameClosed(thisFolderOnly: false)) return;
         SetBusy(true);
         Game.RestartNeeded = false;
+        Game.ProgramNote = "";
         string doing = remove ? "Removing " : (string)programControls[p.Id].Install.Content switch { "Turn on" => "Turning on ", "Repair" => "Repairing ", "Update" => "Updating ", _ => "Installing " };
         Show(InfoBarSeverity.Informational, doing + p.Name + (p.Id == "punkbuster42" && !remove
             ? ". Follow the PunkBuster installer, then click Install/Repair in the PunkBuster Services window and close it."
@@ -827,7 +829,7 @@ public sealed partial class MainWindow : Window
         {
             await Task.Run(() => { if (remove) Game.RemoveProgram(p); else Game.InstallProgram(p); });
             Show(InfoBarSeverity.Success, p.Name + (remove ? " is removed." : " is installed.") +
-                 (Game.RestartNeeded ? " Restart Windows to finish." : ""));
+                 (Game.RestartNeeded ? " Restart Windows to finish." : "") + (Game.ProgramNote != "" ? " " + Game.ProgramNote : ""));
         }
         catch (Exception ex)
         {
@@ -848,7 +850,7 @@ public sealed partial class MainWindow : Window
         KeepAllInView();
     }
 
-    // The tabs' pages and their columns, in the tabs' order; the Programs tab only in a standalone copy with Programs
+    // The tabs' pages and their columns, in the tabs' order; no Programs tab in a standalone copy without Programs
     ContentControl[] PageViews => new[] { Options, PlusOptions, ProgramOptions };
     Grid[] PageColumns => new[] { Columns, PlusColumns, ProgramColumns };
     IEnumerable<int> TabsShown => programsShown ? new[] { 0, 1, 2 } : new[] { 0, 1 };

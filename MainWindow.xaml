@@ -333,7 +333,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="FooterNote" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="0,0,16,0"
-                       Text="DataField42, Battlefield Rich Presence and PunkBuster are separate programs: run the installer again (Custom) to add them, or remove them in Settings &gt; Apps." />
+                       Text="DataField42, Battlefield Rich Presence and PunkBuster are separate programs: run the installer again (Custom) to add them, or remove them on the Programs tab." />
             <!-- Messages take the note's place next to Apply and Close, so they don't push the cards up -->
             <InfoBar x:Name="Status" IsOpen="False" Visibility="Collapsed" Margin="0,0,16,0" VerticalAlignment="Center" Closed="Status_Closed" />
             <Button x:Name="ApplyButton" Grid.Column="1" Content="Apply" Style="{StaticResource AccentButtonStyle}" MinWidth="110" Click="Apply_Click" />

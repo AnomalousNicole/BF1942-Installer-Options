@@ -3,7 +3,8 @@
 // standalone copy of the app (BF1942-Installer's build.ps1 -Standalone) brings their installers in Programs next to
 // the exe, with programs.json naming each one's file and version, and installs and removes them the way Setup and
 // its uninstaller do (installer\BF1942-Installer.iss in BF1942-Installer). The copy Setup installs has no Programs
-// folder: there, running Setup again adds them.
+// folder: there, the tab shows what is installed and removes the separate programs, and running Setup again adds
+// them (DirectPlay, part of Windows, can be turned on in both).
 //
 // The runtimes and DirectPlay are shared with other games and programs, so like Setup's uninstaller the app never
 // removes them, and DirectX June 2010 has no uninstaller at all.
@@ -46,7 +47,7 @@ static partial class Game
                 Description = "The June 2010 DirectX libraries Battlefield 1942 and its fixes use. Installed only when missing." },
             new ProgramInfo { Id = "vcredist", Name = "Visual C++ Redistributable (x86)", Credit = "Microsoft", Shared = true,
                 Description = "The Visual C++ runtime BF42++ and the other fixes need." },
-            new ProgramInfo { Id = "directplay", Name = "DirectPlay", Credit = "Microsoft", Shared = true,
+            new ProgramInfo { Id = "directplay", Name = "DirectPlay", Credit = "Microsoft", Shared = true, Installer = "",
                 Description = "The Windows feature the game uses for online and LAN games." },
             new ProgramInfo { Id = "datafield42", Name = "DataField42", Credit = "Ahrkylien", Win64Only = true, NeedsGame = true,
                 Description = "Downloads the maps and mods a server needs when you join it." },
@@ -60,7 +61,6 @@ static partial class Game
             using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(ProgramsDir, "programs.json")));
             foreach (ProgramInfo p in list)
             {
-                // DirectPlay is part of Windows: its entry only says the download can turn it on
                 if (!doc.RootElement.TryGetProperty(p.Id, out JsonElement e)) continue;
                 if (e.TryGetProperty("version", out JsonElement v)) p.Version = v.GetString() ?? "";
                 if (e.TryGetProperty("file", out JsonElement f) && f.GetString() is { Length: > 0 } file)
@@ -68,7 +68,6 @@ static partial class Game
                     string path = Path.Combine(ProgramsDir, file);
                     if (File.Exists(path)) p.Installer = path;
                 }
-                else if (p.Id == "directplay") p.Installer = "";
             }
         }
         catch { }
@@ -111,8 +110,18 @@ static partial class Game
             "punkbuster42" => CheckPunkBuster(),
             _ => new ProgramState(false, "", false, "Install", false),
         };
-        // Without its installer in this download, there is nothing to install or repair it with
-        if (p.Installer == null) s = s with { CanInstall = false, Text = s.Text + (s.Installed ? "" : " Not included in this download.") };
+        // Without its installer (the copy Setup installs has none), there is nothing to install or repair it with:
+        // it says where to get it
+        if (p.Installer == null)
+        {
+            if (s.CanInstall && !s.Installed)
+                s = s with { Text = s.Text + " " + (Standalone ? "Not included in this download."
+                    : s.InstallLabel == "Repair" ? "Running the installer again repairs it."
+                    : p.Shared ? "Running the installer again installs it."
+                    : SeparatePrograms == null || SeparatePrograms.Contains(p.Name) ? "Running the installer again (Custom) adds it."
+                    : "Not included in this installer.") };
+            s = s with { CanInstall = false };
+        }
         if (p.NeedsGame && !GameFound) s = s with { Text = s.Text + " It goes in the game folder: click Browse and pick it first.", CanInstall = false, CanRemove = false };
         return s;
     }
@@ -243,8 +252,9 @@ static partial class Game
     static ProgramState CheckRichPresence()
     {
         if (FindUninstallEntry("Battlefield Rich Presence") == null) return new ProgramState(false, "Not installed.", true, "Install", false);
-        return new ProgramState(true, "Installed." + (DotNet8Present() ? "" : " The .NET 8 Desktop Runtime it needs is missing: Repair installs it."),
-                                !DotNet8Present(), "Repair", true);
+        return DotNet8Present()
+            ? new ProgramState(true, "Installed.", false, "Repair", true)
+            : new ProgramState(false, "Installed, but the .NET 8 Desktop Runtime it needs is missing.", true, "Repair", true);
     }
 
     static string ProgramFiles64 => Environment.GetEnvironmentVariable("ProgramW6432") ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
@@ -374,6 +384,8 @@ static partial class Game
                     Directory.Delete(Path.GetDirectoryName(BeforeDataField42)!);
                     Log("Put back BF1942.exe as it was before DataField42");
                 }
+                // Installed by a Setup that didn't keep it yet: Setup puts the game's own BF1942.exe back
+                else ProgramNote = "BF1942.exe still has DataField42's change that starts it for a missing map. Running the installer again puts the game's own BF1942.exe back.";
                 if (Directory.Exists(G("DataField42"))) Directory.Delete(G("DataField42"), true);
                 break;
             case "richpresence":
@@ -402,6 +414,7 @@ static partial class Game
     }
 
     public static bool RestartNeeded;
+    public static string ProgramNote = "";   // something the player should know after an install or remove
 
     // DataField42 running from this game folder is closed (like Setup's CloseDataField42)
     static void CloseDataField42()
