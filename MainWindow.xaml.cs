@@ -29,11 +29,9 @@ public sealed partial class MainWindow : Window
     int tab;              // the tab shown: 0 Fixes and extras, 1 BF42++ settings, 2 Programs
     readonly Border[] plusCards;                                         // one per group, in BF42ppSettings.cs's order
     readonly Dictionary<string, object> plusControls = new();            // each setting's switch, list, text box or ColorList
-    // The Programs tab (Programs.cs), one card per program: in the copy Setup installs, and in a standalone copy
-    // with the programs' installers
-    readonly bool programsShown = !Game.Standalone || Game.HasPrograms;
+    // The Programs tab (Programs.cs), one card per program
     readonly Border[] programCards;
-    readonly Dictionary<string, (TextBlock Status, Button Install, Button Remove)> programControls = new();
+    readonly Dictionary<string, (TextBlock Title, TextBlock Status, Button Install, Button Remove)> programControls = new();
     bool checkingPrograms;   // what is installed is being read
     const string FixesSubtitle = "Turn the fixes and extras on or off. Nothing changes until you click Apply. Close the game first.";
     const string ProgramsSubtitle = "The programs and Windows components the installer adds. Each button acts at once. Close the game first.";
@@ -139,10 +137,10 @@ public sealed partial class MainWindow : Window
                 FooterNote.Visibility = Visibility.Collapsed;
             }
             else if (programs.Length == 1)
-                FooterNote.Text = programs[0] + " is a separate program: run the installer again (Custom) to add it, or remove it on the Programs tab.";
+                FooterNote.Text = programs[0] + " is a separate program: add or remove it on the Programs tab.";
             else
                 FooterNote.Text = string.Join(", ", programs[..^1]) + " and " + programs[^1] +
-                                  " are separate programs: run the installer again (Custom) to add them, or remove them on the Programs tab.";
+                                  " are separate programs: add or remove them on the Programs tab.";
         }
         AppWindow.Closing += (_, args) =>
         {
@@ -168,8 +166,7 @@ public sealed partial class MainWindow : Window
         var (w, h, r) = Game.PrimaryDisplay();
         ScreenNow.Text = $"Your main screen: {w} x {h} at {r} Hz.";
         plusCards = MakePlusCards();
-        programCards = programsShown ? MakeProgramCards() : Array.Empty<Border>();
-        ProgramsTab.Visibility = programsShown ? Visibility.Visible : Visibility.Collapsed;
+        programCards = MakeProgramCards();
         ShowPage(0);
         columns = 0;
         SetColumns(2);
@@ -204,7 +201,7 @@ public sealed partial class MainWindow : Window
         AutomationProperties.SetName(DgVoodoo, DgVoodooTitle.Text);
         Columns.Opacity = PlusColumns.Opacity = Game.Installed ? 1 : 0.5;
         // DataField42 and PunkBuster go in this game folder
-        if (programsShown) _ = RefreshProgramsAsync();
+        _ = RefreshProgramsAsync();
         if (Game.Installed)
         {
             await ReloadAsync();
@@ -758,7 +755,8 @@ public sealed partial class MainWindow : Window
             panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             panel.RowDefinitions.Add(new RowDefinition());
             var text = new StackPanel { Spacing = 4 };
-            text.Children.Add(new TextBlock { Text = (p.Name.ToUpperInvariant() + " " + p.Version).Trim(), Style = (Style)Application.Current.Resources["CardTitle"], TextWrapping = TextWrapping.Wrap });
+            var title = new TextBlock { Text = p.Name.ToUpperInvariant(), Style = (Style)Application.Current.Resources["CardTitle"], TextWrapping = TextWrapping.Wrap };
+            text.Children.Add(title);
             text.Children.Add(new TextBlock
             {
                 Text = "By " + p.Credit + ". " + p.Description + (p.Shared ? " Other games and programs use it too, so it stays installed." : ""),
@@ -778,7 +776,7 @@ public sealed partial class MainWindow : Window
             buttons.Children.Add(remove);
             Grid.SetRow(buttons, 1);
             panel.Children.Add(buttons);
-            programControls[p.Id] = (status, install, remove);
+            programControls[p.Id] = (title, status, install, remove);
             cards.Add(new Border { Style = (Style)Application.Current.Resources["Card"], Child = panel });
         }
         return cards.ToArray();
@@ -797,10 +795,12 @@ public sealed partial class MainWindow : Window
             for (int i = 0; i < checks.Length; i++)
             {
                 ProgramInfo p = Game.Programs[i];
-                var (status, install, remove) = programControls[p.Id];
+                var (title, status, install, remove) = programControls[p.Id];
                 ProgramState s;
                 try { s = await checks[i]; }
                 catch (Exception ex) { s = new ProgramState(false, "Could not be checked: " + ex.Message, false, "Install", false); }
+                // With the version of the installer this game folder's library or this copy has
+                title.Text = (p.Name.ToUpperInvariant() + " " + p.Version).Trim();
                 status.Text = s.Text;
                 install.Content = s.InstallLabel;
                 AutomationProperties.SetName(install, s.InstallLabel + " " + p.Name);
@@ -849,10 +849,10 @@ public sealed partial class MainWindow : Window
         KeepAllInView();
     }
 
-    // The tabs' pages and their columns, in the tabs' order; no Programs tab in a standalone copy without Programs
+    // The tabs' pages and their columns, in the tabs' order
     ContentControl[] PageViews => new[] { Options, PlusOptions, ProgramOptions };
     Grid[] PageColumns => new[] { Columns, PlusColumns, ProgramColumns };
-    IEnumerable<int> TabsShown => programsShown ? new[] { 0, 1, 2 } : new[] { 0, 1 };
+    IEnumerable<int> TabsShown => new[] { 0, 1, 2 };
 
     // Shows a tab's page and says what it is for. FitToContent and CorrectHeight also show the others for a
     // moment, to measure them.

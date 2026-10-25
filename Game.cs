@@ -169,6 +169,7 @@ static partial class Game
     {
         Dir = FullPath(dir);
         Lib = Path.Combine(Dir, LibFolder);
+        FindInstallers();
     }
 
     // Remembered for the next start, only for a folder this installer's library is in: the uninstaller removes the

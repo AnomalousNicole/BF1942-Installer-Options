@@ -1,10 +1,12 @@
 // The programs and Windows components the installer adds besides the game folder's files: the DirectX and Visual C++
-// runtimes, DirectPlay, DataField42, Battlefield Rich Presence (with the .NET 8 Desktop Runtime) and PunkBuster. A
-// standalone copy of the app (BF1942-Installer's build.ps1 -Standalone) brings their installers in Programs next to
-// the exe, with programs.json naming each one's file and version, and installs and removes them the way Setup and
-// its uninstaller do (installer\BF1942-Installer.iss in BF1942-Installer). The copy Setup installs has no Programs
-// folder: there, the tab shows what is installed and removes the separate programs, and running Setup again adds
-// them (DirectPlay, part of Windows, can be turned on in both).
+// runtimes, DirectPlay, DataField42, Battlefield Rich Presence (with the .NET 8 Desktop Runtime) and PunkBuster. The
+// app installs and removes them the way Setup and its uninstaller do (installer\BF1942-Installer.iss in
+// BF1942-Installer), from installers in a Programs folder with programs.json naming each one's file and version:
+// - the library's (Options\Programs in the game folder, which Setup installs and Set up copies; a standalone copy's
+//   Library\Programs before then): DataField42, Battlefield Rich Presence and Punkbuster42, so every game folder can
+//   add and remove them, whatever copy of the app runs
+// - a standalone copy's own, next to the exe: Microsoft's runtimes, which the build downloads. Without them a card
+//   says running the installer again installs it.
 //
 // The runtimes and DirectPlay are shared with other games and programs, so like Setup's uninstaller the app never
 // removes them, and DirectX June 2010 has no uninstaller at all.
@@ -27,71 +29,66 @@ sealed class ProgramInfo
 {
     public required string Id, Name, Credit, Description;
     public string Version = "";
-    public string? Installer;   // full path to its installer, null when this download doesn't have it
+    public string? Installer;   // full path to its installer, null when no Programs folder has it
     public bool Win64Only, NeedsGame, Shared;
 }
 
 static partial class Game
 {
-    static string ProgramsDir => Path.Combine(AppContext.BaseDirectory, "Programs");
-    public static bool HasPrograms => File.Exists(Path.Combine(ProgramsDir, "programs.json"));
+    const string LibPrograms = "Programs";
 
     // In the order the tab shows them
-    public static readonly ProgramInfo[] Programs = LoadPrograms();
-
-    static ProgramInfo[] LoadPrograms()
+    public static readonly ProgramInfo[] Programs =
     {
-        var list = new[]
+        new ProgramInfo { Id = "directx", Name = "DirectX End-User Runtime", Credit = "Microsoft", Shared = true,
+            Description = "The June 2010 DirectX libraries Battlefield 1942 and its fixes use. Installed only when missing." },
+        new ProgramInfo { Id = "vcredist", Name = "Visual C++ Redistributable (x86)", Credit = "Microsoft", Shared = true,
+            Description = "The Visual C++ runtime BF42++ and the other fixes need." },
+        new ProgramInfo { Id = "directplay", Name = "DirectPlay", Credit = "Microsoft", Shared = true, Installer = "",
+            Description = "The Windows feature the game uses for online and LAN games." },
+        new ProgramInfo { Id = "datafield42", Name = "DataField42", Credit = "Ahrkylien", Win64Only = true, NeedsGame = true,
+            Description = "Downloads the maps and mods a server needs when you join it." },
+        new ProgramInfo { Id = "richpresence", Name = "Battlefield Rich Presence", Credit = "Gametools Network", Win64Only = true,
+            Description = "Shows the server and map you are playing on in Discord. Needs the .NET 8 Desktop Runtime from Microsoft." },
+        new ProgramInfo { Id = "punkbuster42", Name = "PunkBuster", Credit = "Even Balance, installed by the BF1942 community's Punkbuster42", NeedsGame = true,
+            Description = "The anti-cheat some servers require. Its own installer opens: follow it, then finish the PunkBuster Services window." },
+    };
+
+    // The .NET 8 Desktop Runtime is installed with Battlefield Rich Presence, so it has no card of its own
+    static readonly ProgramInfo DotNet8 = new() { Id = "dotnet8", Name = ".NET 8 Desktop Runtime (x64)", Credit = "Microsoft", Description = "", Shared = true };
+
+    // The Programs folders, in the order an installer is looked for in: next to the exe, the game folder's library,
+    // and a standalone copy's library (before Set up copies it)
+    static string[] ProgramsDirs => new[] { Path.Combine(AppContext.BaseDirectory, LibPrograms), L(LibPrograms), Path.Combine(Bundled, LibPrograms) };
+
+    // Each program's installer and version from the first Programs folder that has it. Again for every game folder.
+    static void FindInstallers()
+    {
+        foreach (ProgramInfo p in Programs.Append(DotNet8))
         {
-            new ProgramInfo { Id = "directx", Name = "DirectX End-User Runtime", Credit = "Microsoft", Shared = true,
-                Description = "The June 2010 DirectX libraries Battlefield 1942 and its fixes use. Installed only when missing." },
-            new ProgramInfo { Id = "vcredist", Name = "Visual C++ Redistributable (x86)", Credit = "Microsoft", Shared = true,
-                Description = "The Visual C++ runtime BF42++ and the other fixes need." },
-            new ProgramInfo { Id = "directplay", Name = "DirectPlay", Credit = "Microsoft", Shared = true, Installer = "",
-                Description = "The Windows feature the game uses for online and LAN games." },
-            new ProgramInfo { Id = "datafield42", Name = "DataField42", Credit = "Ahrkylien", Win64Only = true, NeedsGame = true,
-                Description = "Downloads the maps and mods a server needs when you join it." },
-            new ProgramInfo { Id = "richpresence", Name = "Battlefield Rich Presence", Credit = "Gametools Network", Win64Only = true,
-                Description = "Shows the server and map you are playing on in Discord. Needs the .NET 8 Desktop Runtime, which is installed with it." },
-            new ProgramInfo { Id = "punkbuster42", Name = "PunkBuster", Credit = "Even Balance, installed by the BF1942 community's Punkbuster42", NeedsGame = true,
-                Description = "The anti-cheat some servers require. Its own installer opens: follow it, then finish the PunkBuster Services window." },
-        };
-        try
+            if (p.Id == "directplay") continue;   // part of Windows: DISM turns it on
+            p.Installer = null;
+            p.Version = "";
+        }
+        foreach (string dir in ProgramsDirs.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(ProgramsDir, "programs.json")));
-            foreach (ProgramInfo p in list)
+            try
             {
-                if (!doc.RootElement.TryGetProperty(p.Id, out JsonElement e)) continue;
-                if (e.TryGetProperty("version", out JsonElement v)) p.Version = v.GetString() ?? "";
-                if (e.TryGetProperty("file", out JsonElement f) && f.GetString() is { Length: > 0 } file)
+                string json = Path.Combine(dir, "programs.json");
+                if (!File.Exists(json)) continue;
+                using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(json));
+                foreach (ProgramInfo p in Programs.Append(DotNet8))
                 {
-                    string path = Path.Combine(ProgramsDir, file);
-                    if (File.Exists(path)) p.Installer = path;
+                    if (p.Installer != null || !doc.RootElement.TryGetProperty(p.Id, out JsonElement e)) continue;
+                    if (!e.TryGetProperty("file", out JsonElement f) || f.GetString() is not { Length: > 0 } file) continue;
+                    string path = Path.Combine(dir, file);
+                    if (!File.Exists(path)) continue;
+                    p.Installer = path;
+                    p.Version = e.TryGetProperty("version", out JsonElement v) ? v.GetString() ?? "" : "";
                 }
             }
+            catch { }
         }
-        catch { }
-        return list;
-    }
-
-    // The .NET 8 Desktop Runtime is installed with Battlefield Rich Presence, so it has no row of its own
-    static readonly ProgramInfo DotNet8 = LoadDotNet8();
-
-    static ProgramInfo LoadDotNet8()
-    {
-        var p = new ProgramInfo { Id = "dotnet8", Name = ".NET 8 Desktop Runtime (x64)", Credit = "Microsoft", Description = "", Shared = true };
-        try
-        {
-            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(ProgramsDir, "programs.json")));
-            if (doc.RootElement.TryGetProperty("dotnet8", out JsonElement e))
-            {
-                p.Version = e.GetProperty("version").GetString() ?? "";
-                string path = Path.Combine(ProgramsDir, e.GetProperty("file").GetString() ?? "");
-                if (File.Exists(path)) p.Installer = path;
-            }
-        }
-        catch { }
-        return p;
     }
 
     // ---- What is there now (slow: run it off the UI thread) ----
@@ -251,7 +248,11 @@ static partial class Game
 
     static ProgramState CheckRichPresence()
     {
-        if (FindUninstallEntry("Battlefield Rich Presence") == null) return new ProgramState(false, "Not installed.", true, "Install", false);
+        // .NET 8 comes from Microsoft: only a standalone copy brings its installer
+        if (FindUninstallEntry("Battlefield Rich Presence") == null)
+            return DotNet8Present() || DotNet8.Installer != null
+                ? new ProgramState(false, "Not installed.", true, "Install", false)
+                : new ProgramState(false, "Not installed. It needs the .NET 8 Desktop Runtime (x64) first: get it from Microsoft at dotnet.microsoft.com/download/dotnet/8.0, then come back here.", false, "Install", false);
         return DotNet8Present()
             ? new ProgramState(true, "Installed.", false, "Repair", true)
             : new ProgramState(false, "Installed, but the .NET 8 Desktop Runtime it needs is missing.", true, "Repair", true);
@@ -337,7 +338,7 @@ static partial class Game
             case "richpresence":
                 if (!DotNet8Present())
                 {
-                    if (DotNet8.Installer == null) throw new Exception("The .NET 8 Desktop Runtime it needs is missing, and this download doesn't include it.");
+                    if (DotNet8.Installer == null) throw new Exception("The .NET 8 Desktop Runtime (x64) it needs is missing. Get it from Microsoft at https://dotnet.microsoft.com/download/dotnet/8.0 and try again.");
                     Log("Installing " + DotNet8.Name);
                     // The version is registered but its files are gone: /install would do nothing, so it repairs
                     using RegistryKey? reg = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
