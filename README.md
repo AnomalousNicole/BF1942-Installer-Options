@@ -60,6 +60,8 @@ The left side has **Play**, **Join** (when the installer has a server shortcut),
 
 `.\build.ps1 -Standalone` in BF1942-Installer writes `output\BF1942-Options-Standalone.zip`: the app, with an `options.json` that uses a state key of its own (`SOFTWARE\BF1942 Options`), and the library Setup would keep in the game folder in `Library` next to the exe. The app counts as standalone when `Library\BF42++` is there.
 
+![A standalone copy opened on a game folder without a library: the switches are off and the message at the bottom offers Set up](docs/screenshot-setup.png)
+
 1. Players extract the zip anywhere and run `BF1942 Options.exe`. It opens the folder from the game's registry entry or the one it was extracted in, or they click **Browse...**.
 2. In a folder without an `Options` library, **Set up** copies `Library` to `Options` in the game folder. `Options\Originals` gets the folder's own `menu.rfa` and `Battle_of_Britain.rfa`, unless they are the modified ones already (then the library's originals are used, when the build had a game folder). The game itself doesn't change.
 3. From then on the folder works like one Setup installed: the switches show what is on, and **Apply** changes it. Files that are neither fix, like another `d3d8.dll`, show as *neither DXVK nor dgVoodoo2* until a fix is picked. Every file of the folder's own that Apply replaces or removes (DLLs, `Font.rfa`, ...) is kept in `Options\Backup` first.
@@ -69,6 +71,8 @@ An extra that is on already in a folder with no original to go back to (for exam
 ### The Programs tab
 
 A standalone copy also has the installers of everything else Setup's components page offers, in `Programs` next to the exe, with `programs.json` naming each one's file and version. Its third tab, **Programs**, has a card for each, with what is installed now and **Install** (or **Repair**, **Update**, **Turn on**) and **Remove**. `Programs.cs` does what Setup and its uninstaller do (`installer\BF1942-Installer.iss` in BF1942-Installer), and logs it to `Options.log`:
+
+![The Programs tab: the DirectX runtime, DirectPlay, Battlefield Rich Presence, the Visual C++ Redistributable, DataField42 and PunkBuster, each with what is installed now and its buttons](docs/screenshot-programs.png)
 
 | Program | Install | Remove |
 |---|---|---|
