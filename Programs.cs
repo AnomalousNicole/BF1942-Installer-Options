@@ -384,8 +384,8 @@ static partial class Game
                     Directory.Delete(Path.GetDirectoryName(BeforeDataField42)!);
                     Log("Put back BF1942.exe as it was before DataField42");
                 }
-                // Installed by a Setup that didn't keep it yet: Setup puts the game's own BF1942.exe back
-                else ProgramNote = "BF1942.exe still has DataField42's change that starts it for a missing map. Running the installer again puts the game's own BF1942.exe back.";
+                // Installed by Setup or by the player, so there is no copy from before
+                else if (UndoDataField42Patch()) Log("Took DataField42's patch out of BF1942.exe");
                 if (Directory.Exists(G("DataField42"))) Directory.Delete(G("DataField42"), true);
                 break;
             case "richpresence":
@@ -414,7 +414,38 @@ static partial class Game
     }
 
     public static bool RestartNeeded;
-    public static string ProgramNote = "";   // something the player should know after an install or remove
+
+    // DataField42's patch to BF1942.exe (Bf1942ClientPatches.cs in Ahrkylien/BF1942-DataField42): bytes it writes over
+    // the 1.61 BF1942.exe, at these offsets, and the game's own bytes there. It makes the game start DataField42.exe
+    // when a map or mod is missing.
+    static readonly (int Offset, string Patched, string Original)[] DataField42Patch =
+    {
+        (0x9494F, "E8BC75F7FF9090",
+                  "8D8C2490000000"),
+        (0x0BF10, "8D8C246CFFFFFF5550535152575689E989E581EC000300006A00A1AC1E97008D88D4070000FF15DC308C00508D460C508D8FD4020000FF15DC308C0089C131DBC68500FEFFFF228A04194388841D00FEFFFF84C075F1C6841D00FEFFFF22C6841D01FEFFFF008D8500FEFFFF508D8F2C020000FF15DC308C005031DBC68500FFFFFF228A83D0528C004388841D00FFFFFF84C075EEC6841D00FFFFFF22C6841D01FFFFFF008D8500FFFFFF5068F0BF400068E0BF400068E0BF40006A02FF15F8348C0083C41489EC5E5F5A595B585DC3446174614669656C6434322E657865006D617000",
+                  "81ECF80000006846388C008D4C2404FF1534318C006846388C008D4C2420FF1534318C008D442400506A008D4C2424516A048D4C2448E85562170083C04068B84F8C0050FF15A4318C0083C4088D4C2438E80A6317008D4C241CFF151C318C008D4C2400FF151C318C0083C8FF81C4F8000000C210009090909090909090909081ECF80000006846388C008D4C2404FF1534318C006846388C008D4C2420FF1534318C008D442400506A008D4C2424516A048D4C2448E8D561170083C04068B84F8C0050FF15A4318C0083C4088D4C2438E88A6217008D4C241CFF151C318C008D4C2400"),
+        (0x94EF5, "E8F671F7FF9090909090",
+                  "C787B00200000B000000"),
+        (0x0C0F0, "C787B00200000B0000005550535152575689E989E581EC000200006A00568D8FD4020000FF15DC308C0089C131DBC68500FEFFFF228A04194388841D00FEFFFF84C075F1C6841D00FEFFFF22C6841D01FEFFFF008D8500FEFFFF508D8F2C020000FF15DC308C005031DBC68500FFFFFF228A83D0528C004388841D00FFFFFF84C075EEC6841D00FFFFFF22C6841D01FFFFFF008D8500FFFFFF5068BEC1400068AEC1400068AEC140006A02FF15F8348C0083C41489EC5E5F5A595B585DC3446174614669656C6434322E657865006D6F6400",
+                  "81ECF80000006846388C008D4C2404FF1534318C006846388C008D4C2420FF1534318C008D442400506A008D4C2424516A048D4C2448E87560170083C04068F04F8C0050FF15A4318C0083C4088D4C2438E82A6117008D4C241CFF151C318C008D4C2400FF151C318C0083C8FF81C4F8000000C214009090909090909090909081ECF80000006846388C008D4C2404FF1534318C006846388C008D4C2420FF1534318C008D442400506A008D4C2424516A048D4C2448E8F55F170083C040683C508C0050FF15A4318C0083C4088D4C2438E8")
+    };
+
+    // Puts the game's own bytes back, when BF1942.exe has all of DataField42's (false: it has none or not all of them)
+    static bool UndoDataField42Patch()
+    {
+        string exe = G("BF1942.exe");
+        byte[] data = File.ReadAllBytes(exe);
+        foreach (var (offset, patched, _) in DataField42Patch)
+        {
+            byte[] bytes = Convert.FromHexString(patched);
+            if (offset + bytes.Length > data.Length || !data.AsSpan(offset, bytes.Length).SequenceEqual(bytes)) return false;
+        }
+        foreach (var (offset, _, original) in DataField42Patch)
+            Convert.FromHexString(original).CopyTo(data, offset);
+        File.SetAttributes(exe, FileAttributes.Normal);
+        File.WriteAllBytes(exe, data);
+        return true;
+    }
 
     // DataField42 running from this game folder is closed (like Setup's CloseDataField42)
     static void CloseDataField42()

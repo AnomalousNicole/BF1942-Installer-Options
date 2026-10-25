@@ -820,7 +820,6 @@ public sealed partial class MainWindow : Window
         if (busy || checkingPrograms || !GameClosed(thisFolderOnly: false)) return;
         SetBusy(true);
         Game.RestartNeeded = false;
-        Game.ProgramNote = "";
         string doing = remove ? "Removing " : (string)programControls[p.Id].Install.Content switch { "Turn on" => "Turning on ", "Repair" => "Repairing ", "Update" => "Updating ", _ => "Installing " };
         Show(InfoBarSeverity.Informational, doing + p.Name + (p.Id == "punkbuster42" && !remove
             ? ". Follow the PunkBuster installer, then click Install/Repair in the PunkBuster Services window and close it."
@@ -829,7 +828,7 @@ public sealed partial class MainWindow : Window
         {
             await Task.Run(() => { if (remove) Game.RemoveProgram(p); else Game.InstallProgram(p); });
             Show(InfoBarSeverity.Success, p.Name + (remove ? " is removed." : " is installed.") +
-                 (Game.RestartNeeded ? " Restart Windows to finish." : "") + (Game.ProgramNote != "" ? " " + Game.ProgramNote : ""));
+                 (Game.RestartNeeded ? " Restart Windows to finish." : ""));
         }
         catch (Exception ex)
         {
