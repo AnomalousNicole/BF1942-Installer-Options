@@ -525,11 +525,12 @@ public sealed partial class MainWindow : Window
     void ShowSerial()
     {
         bool serial = Game.HasValidSerial();
-        SerialNow.Text = serial ? "A valid CD key is registered." : "No valid CD key was found.";
+        bool shared = !serial && Game.HasPublicSerial();
+        SerialNow.Text = serial ? "A valid CD key is registered." : shared ? "The CD key is a public one, shared online." : "No valid CD key was found.";
         SerialHint.Text = serial
             ? "Nothing to do. Battlefield 1942 uses the key that is already there."
-            : Game.Standalone ? "Battlefield 1942 needs one to play online. Generate a random key."
-            : "Battlefield 1942 needs one to play online. Generate a random key; it is removed again when you uninstall the game.";
+            : shared ? "Servers often ban those, and BF42++ swaps it every launch. Generate a random key."
+            : "Battlefield 1942 needs one to play online. Generate a random key.";
         GenerateSerial.IsEnabled = !serial;
     }
 

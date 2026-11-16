@@ -828,24 +828,57 @@ static partial class Game
     const string ErgcKey = @"SOFTWARE\Electronic Arts\EA GAMES\Battlefield 1942\ergc";
     const string SerialChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-    public static bool HasValidSerial()
+    // MD5 hashes of CD keys that were shared online - BF42++'s list (src/bf/generic.cpp, publicKeyhashes). BF42++ never
+    // plays with one of these: it makes up a different key on every launch instead, so one counts as no valid key
+    static readonly HashSet<string> PublicKeyHashes = new(StringComparer.Ordinal)
+    {
+        "03cc24068f2d6ace6df5dfbe33192f79", "053a82bf31d0f63e669e9035bea4f311", "07c55b2e546cffd5bb4f651011278a22", "0c531ca3a131c03bbd46c51080f1766a", "0cdc91fca51974eec0d543adfc599184",
+        "1771923a84b5e49cf5d9bd9604ca9270", "1aa1d4e206ca2fc392ff0036b95f763f", "1f05a510cf7702a1b9f55bc019ae0508", "21f2ccf610e9501bc97e8ac1229ab6ac", "22ec0d18115c7a18ca7a16be51ebbfdb",
+        "255261c6d23ceb079f12a09308a64405", "2c4eeb9cfdea0967453aa5f581762275", "358f5c7ebd91b056945870e42afb2931", "3605e2971404916661b2827645b53f29", "362c3da00a64548006e57b52f9622643",
+        "36c48983173ceb22aabbee02c6f6a257", "3bd7672544d559ff2a35ab514e71e181", "3bec87f93d82b64673c45525e810cc05", "4104105c7364bcc93dff356b2551b940", "41c0331a6016e1fc79fb67124596ee00",
+        "455fd2eee9e12c8b60d66dd2a744effd", "46694c558edbdc4ae977fefd187da121", "478426276878db12b2efb0e860a5198f", "489dd73074a2e01f2987d54831e202f1", "4f944cad3f8dfa5659d1839fc581eb25",
+        "53c0468bae3da7372eea1635fdd715a3", "586083292728d3862ddfca42f3e7eca8", "599694ad90632be71afdef6fafbae4d9", "5e635b66a96f675dea234c08e3eacb9e", "5e95075828fd6bc0d7e40741b4858f1c",
+        "61aaca8b58632eacb188fddfb31a5720", "630baa5117672fafa76f29f660ed501b", "659135be470b0dafa60c33606ae35af9", "6af8e245e6314e304576c6f5b09f0c9a", "70d783189d8ad1b55996795946a6eae3",
+        "74e6f15c7754719e8024e857826196ea", "75e93c39cd97b00697e55b987bf474ae", "76b2d8fbdf7436db915a9ffb2d509e28", "794963c6cad8f381c9ca1d108040d735", "808e63e60bdd5772f29423c47b8e86aa",
+        "8384f4dd8573ef62b5df82aa89ef7adb", "880053b83daaf58661e9c0c89c04de2f", "89b9665968aeac6a4e7025eac08c3d46", "8a0778fc9f844a9a52433c1a7afaaf3a", "923ba7463fc02e59ba16afd2220c643f",
+        "9378afca20de945b01558e95c0404a7d", "94f8f7abda5fef546a48b3c88a22f53f", "9526e11d8e7a5eeb474641aac778b61f", "954a111fa6633df3b95418c19290a545", "9865dfb34f393cfddf2209ed3140c859",
+        "9bc97e57ba68034e898fa3b3c93bd054", "9e5d15c8c748741e22ee93e1671bd1b9", "aa73b06e45f8e0df52e9aa0b44f41869", "b4dc974dde83dc764dc5e2979a207bfb", "b62539b6578e540b4c649e7d2ca24d75",
+        "b83d0fc147343db4da01fac3ba250358", "ba3428336c05da461add6867cddd90cc", "c453a3069dec719447a9af5c1ffd4076", "c5bb5befd67806eb46247b83d7695eb1", "c98aca307b0ed492373a60333ece3ea0",
+        "cfb7aaad39880ad4a5d6734935f80e13", "d5ced1c6328765407786032ca0f700d6", "d64ab2b4383d6e1193051a2cb6965577", "d9feb98e55f2b76f5add2561a8994e4b", "e14156f380f9cc5c41bf85dfaf5c936b",
+        "ea185cc2d00e31972111ebd125ebaddd", "f2786e4c32b8c15feff542b65d88b7cd", "f412d71ec3831bfb45e5be1cd0f6f0ac", "fb5fbc503ea25b044106f93e14c34f05", "fddbcf8f859d572031760fdee346de0d",
+    };
+
+    static string RegisteredSerial()
     {
         using RegistryKey? k = Registry.LocalMachine.OpenSubKey(ErgcKey);
-        string serial = (k?.GetValue("") as string ?? "").Trim();
+        return k?.GetValue("") as string ?? "";
+    }
+
+    // The same test as BF42++: 22 characters, a digit first, and its MD5 on the list
+    public static bool HasPublicSerial()
+    {
+        string serial = RegisteredSerial();
+        return serial.Length == 22 && char.IsAsciiDigit(serial[0])
+            && PublicKeyHashes.Contains(Convert.ToHexStringLower(MD5.HashData(Encoding.ASCII.GetBytes(serial))));
+    }
+
+    public static bool HasValidSerial()
+    {
+        if (HasPublicSerial()) return false;
+        string serial = RegisteredSerial().Trim();
         if (serial.Length != 22) return false;
         foreach (char c in serial.ToUpperInvariant())
             if (SerialChars.IndexOf(c) < 0) return false;
         return true;
     }
 
-    // Registers a random serial. SerialCreated tells the uninstaller to remove it again, as it does for one Setup made.
+    // Registers a random serial. Uninstalling leaves it, as it does one Setup made: every copy of the game shares it.
     public static void GenerateSerial()
     {
         var chars = new char[22];
         for (int i = 0; i < chars.Length; i++) chars[i] = SerialChars[RandomNumberGenerator.GetInt32(SerialChars.Length)];
         using (RegistryKey k = Registry.LocalMachine.CreateSubKey(ErgcKey))
             k.SetValue("", new string(chars));
-        SetState("SerialCreated", "1");
         Log("Generated a CD key");
     }
 

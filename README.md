@@ -29,7 +29,7 @@ One window, in a Battlefield 1942 theme, with three tabs: **Fixes and extras**, 
 | Skip the intro videos | `+restart 1` on the desktop shortcuts |
 | Resolution | **Use my screen's resolution** sets every `Video*.con` to the main screen |
 | Player name | **Use this name** works like Setup's *Set your player name* in BF1942-Installer: it copies the profile the game starts with to `Settings\Profiles\<name>` (spaces and characters a folder name can't have become `_`), sets the name in it and makes it the one the game starts with |
-| CD key | **Generate a CD key**, only when no valid key is registered |
+| CD key | **Generate a CD key**, only when no valid key, or a public one shared online, is registered |
 
 **BF42++ settings** has BF42++'s own settings from `bf42++.ini`, in cards: HUD, chat and console, 3D map markers, controls, performance, and graphics and files (screenshot format, round replays, unpacked game files). Each is a switch, a list or a text box, and the buddy colours are swatches in the order BF42++ hands them out: **+** adds one from a palette (or any colour with **Other colour...**), and clicking a swatch moves it or takes it out. Pointing at a setting's name shows what it does and BF42++'s default. The list, with BF42++'s defaults and ranges, is in `BF42ppSettings.cs`; it follows [sila-skandia/bf42plus](https://github.com/sila-skandia/bf42plus) (Casqade's bf42++ with round replays). Apply writes only the settings that changed, each in place of its own line, so the file's comments, buddy colours and ignore list stay. A colour or number BF42++ wouldn't take keeps Apply off until it is fixed. When the game folder has no `bf42++.ini`, the tab shows the library's copy, which Apply puts there.
 
