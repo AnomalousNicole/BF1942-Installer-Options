@@ -95,7 +95,7 @@ Each button acts at once and needs every copy of the game closed. A separate pro
 dotnet publish BF1942Options.csproj -c Release -o publish -p:GameIcon="C:\path\to\Battlefield 1942\bf1942.ico"
 ```
 
-- Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (`winget install --id Microsoft.DotNet.SDK.10 --exact`).
+- Needs the [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0) (`winget install --id Microsoft.DotNet.SDK.11 --exact`).
 - WinUI 3 (Windows App SDK), 32-bit, self-contained and trimmed: players need no .NET or Windows App SDK, and it runs on Windows 10 version 1809 or later and Windows 11. The folder is about 70 MB.
 - `GameIcon` is optional; it sets the exe and window icon to the game's.
 
