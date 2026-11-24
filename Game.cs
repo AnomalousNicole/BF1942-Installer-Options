@@ -457,11 +457,7 @@ static partial class Game
             // dsound_next.dll before dsound.dll, so a copy that fails can't turn the other switch off.
             string? dsound = to.BF42pp ? LibBF42pp + @"\dsound.dll" : to.Audio ? LibAudio + @"\dsound_next.dll" : null;
             string? dsoundNext = to.BF42pp && to.Audio ? LibAudio + @"\dsound_next.dll" : null;
-            if (to.BF42pp)
-            {
-                Copy(LibBF42pp + @"\bf42++BlackScreen.exe", "bf42++BlackScreen.exe");
-                CopyIfMissing(LibBF42pp + @"\bf42++.ini", "bf42++.ini");
-            }
+            if (to.BF42pp) CopyIfMissing(LibBF42pp + @"\bf42++.ini", "bf42++.ini");
             if (to.Audio)
             {
                 Copy(LibAudio + @"\dsoal-aldrv.dll", "dsoal-aldrv.dll");
@@ -472,8 +468,8 @@ static partial class Game
             // Only the copies from the library go: a dsound.dll or dsound_next.dll of the player's own stays
             if (dsound == null) RemoveIfFrom("dsound.dll", LibBF42pp + @"\dsound.dll", LibAudio + @"\dsound_next.dll");
             if (dsoundNext == null) RemoveIfFrom("dsound_next.dll", LibAudio + @"\dsound_next.dll");
-            if (!to.BF42pp) Remove("bf42++BlackScreen.exe");   // bf42++.ini stays, with the player's settings
-            if (!to.Audio) Remove("dsoal-aldrv.dll");          // alsoft.ini stays too
+            // bf42++.ini stays when BF42++ is turned off, with the player's settings, and so does alsoft.ini
+            if (!to.Audio) Remove("dsoal-aldrv.dll");
         }
 
         if (to.Font != from.Font && to.Font >= 0)

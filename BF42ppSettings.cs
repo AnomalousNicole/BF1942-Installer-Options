@@ -1,6 +1,6 @@
 // BF42++'s own settings, which the BF42++ settings tab shows: their names, defaults and ranges, and how they are
 // read from and saved to bf42++.ini in the game folder. The names, defaults and ranges are BF42++'s own
-// (src/settings.h in github.com/sila-skandia/bf42plus); the labels and explanations are written for players.
+// (src/settings.h in github.com/Casqade/bf42plusplus); the labels and explanations are written for players.
 //
 // BF42++ reads the file when the game starts, and writes it when a setting is changed in the game's console
 // (plus.<name>), so the app only saves it while the game is closed. Only the lines of the settings that changed
@@ -198,7 +198,7 @@ static partial class Game
         new("screenshotFormat", "GRAPHICS AND FILES", "Screenshot format", PlusKind.Choice, "png",
             "The file type of your screenshots: PNG (sharp, bigger files) or JPG (smaller files).", Choices: new[] { "png", "jpg" }),
         new("recordReplays", "GRAPHICS AND FILES", "Record round replays", PlusKind.Switch, "off",
-            "Records every round you play online to the replays folder in the game folder, one file per server you join, to watch later in a replay viewer such as play.bfstats.io. You can also turn it on or off in the console with plus.recordReplays 1 or 0. By sila-skandia."),
+            "Records every round you play online to the replays folder in the game folder, in a new file each time you join a server, to watch later in a replay viewer such as replay.bfstats.io. You can also turn it on or off in the console with plus.recordReplays 1 or 0. By sila-skandia."),
         new("disableArchiveOnlyMode", "GRAPHICS AND FILES", "Load unpacked game files", PlusKind.Switch, "off",
             "Lets the game load unpacked files from the game folder as well as its .rfa archives, like the BF1942_r debug version does. For modders; leave it off to play."),
     };

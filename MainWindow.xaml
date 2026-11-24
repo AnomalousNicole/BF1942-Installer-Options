@@ -184,7 +184,7 @@
                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                     <StackPanel>
                                         <TextBlock x:Name="BF42ppTitle" Text="BF42++" Style="{StaticResource Setting}" />
-                                        <TextBlock Style="{StaticResource Hint}" Text="By Casqade, with round replays by sila-skandia. Bug fixes and improvements. Its own settings are on the BF42++ settings tab." />
+                                        <TextBlock Style="{StaticResource Hint}" Text="By uuuzbf, Casqade and sila-skandia. Bug fixes and improvements. Its own settings are on the BF42++ settings tab." />
                                     </StackPanel>
                                     <ToggleSwitch x:Name="BF42pp" AutomationProperties.Name="BF42++" Grid.Column="1" Style="{StaticResource Switch}" Toggled="Changed" />
                                 </Grid>
